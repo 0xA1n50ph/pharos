@@ -1,0 +1,17 @@
+# Ambiente Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Gerados pelo setup.sh (específicos da máquina)
+.setup.conf
+.ollama-serve.log
+/pharos.sh
+
+# Dados de projetos (livros extraídos/traduzidos): não versionar
+/naylor1/
+*.zip

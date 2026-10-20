@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revisão do OCR</title>
+<style>
+:root{
+  --bg:#f4f3ef; --painel:#ffffff; --tx:#1c1c1e; --mut:#6b6b72; --bd:#d9d7d0; --ac:#2f5d8a; --ac-tx:#ffffff;
+  --ok:#2e7d4f; --aviso:#b26a00; --ruim:#b3261e; --sel:#e6eef7; --campo:#fcfcfa; --ia:#6a3fa8; --ia-bg:#f3edfb;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#151517; --painel:#1e1e21; --tx:#ececee; --mut:#9b9ba3; --bd:#35353b; --ac:#7fb0e6; --ac-tx:#0f1418;
+  --ok:#6cc48a; --aviso:#f0b050; --ruim:#ff8a80; --sel:#26303b; --campo:#19191c; --ia:#c8a8f4; --ia-bg:#2a2236;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+button,select,input,textarea{font:inherit;color:inherit}
+select{background:var(--painel);border:1px solid var(--bd);border-radius:6px;padding:3px 6px}
+select option{background:var(--painel);color:var(--tx)}
+@media (max-width:1600px){header .sub{display:none}}
+button{cursor:pointer;border:1px solid var(--bd);background:var(--painel);border-radius:6px;padding:5px 10px}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+button.primario{background:var(--ac);border-color:var(--ac);color:var(--ac-tx);font-weight:600}
+button.pequeno{padding:2px 7px;font-size:12px}
+button:disabled{opacity:.5;cursor:default}
+header{display:flex;align-items:center;gap:16px;padding:8px 16px;background:var(--painel);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:650}
+header .sub{color:var(--mut);margin-left:8px;font-weight:400}
+.prog{display:flex;align-items:center;gap:8px;margin-left:auto;color:var(--mut)}
+progress{width:140px;height:8px;accent-color:var(--ok)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1.05fr) minmax(0,1fr);gap:0}
+nav,.col{min-height:0;overflow:auto;background:var(--painel);border-right:1px solid var(--bd)}
+nav{padding:8px}
+nav .item{display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 3px;text-align:left;border-color:transparent;background:transparent}
+nav .item[aria-current=true]{background:var(--sel);border-color:var(--ac)}
+.selos{display:flex;gap:4px;font-size:12px}
+.selo{padding:0 5px;border-radius:9px;border:1px solid currentColor;font-size:11px}
+.selo.sinal{color:var(--aviso)} .selo.rev{color:var(--ok)} .selo.edit{color:var(--mut)} .selo.ia{color:var(--ia)}
+.barra{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--painel);z-index:2;flex-wrap:wrap}
+.barra .mut{color:var(--mut)}
+.imagem{background:var(--bg)}
+.folha{position:relative;margin:12px;box-shadow:0 1px 6px rgba(0,0,0,.25);background:#fff}
+.folha img{display:block;width:100%;height:auto}
+.caixa{position:absolute;border:1.5px solid #e08a00;background:rgba(255,170,40,.22);border-radius:2px;cursor:pointer}
+.caixa.c0{border-color:#c62828;background:rgba(220,50,50,.25)}
+.caixa:hover{background:rgba(255,170,40,.5)}
+.sem-caixas .caixa{display:none}
+.texto{background:var(--painel);border-right:0}
+.conteudo{padding:12px}
+.aviso-pag{margin:0 0 10px;color:var(--aviso)}
+.sugestoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.ia-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ia-ctl .mut{color:var(--mut)}
+.iabox{border:1px dashed var(--ia);border-radius:8px;padding:8px 10px;margin-bottom:10px;background:var(--ia-bg)}
+.iabox .cab{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.iabox h3{margin:0;font-size:13px;color:var(--ia);flex:1;min-width:180px}
+.iabox .item{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;border-top:1px solid var(--bd)}
+.iabox .tx{flex:1;min-width:200px;cursor:pointer;font-family:Georgia,"Times New Roman",serif;font-size:15px}
+.iabox .ctx{color:var(--mut)}
+.iabox del{color:var(--ruim);text-decoration-thickness:1.5px}
+.iabox ins{color:var(--ok);text-decoration:none;font-weight:700}
+.iabox .conf{color:var(--mut);font-size:12px}
+.iabox .nota{margin:6px 0 0;color:var(--mut);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:14px;padding:2px 4px 2px 10px;background:var(--campo)}
+.chip b{font-weight:650}
+.bloco{border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;background:var(--campo)}
+.bloco .topo{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.bloco .topo .esp{flex:1}
+.bloco select{background:var(--painel);border:1px solid var(--bd);border-radius:6px;padding:2px 4px}
+.bloco textarea{display:block;width:100%;border:0;background:transparent;padding:8px 10px;resize:none;font:16px/1.55 Georgia,"Times New Roman",serif;min-height:42px}
+.bloco textarea:focus{outline:2px solid var(--ac);outline-offset:-2px;border-radius:0 0 8px 8px}
+.bloco.titulo textarea{font-weight:700;font-size:18px}
+.bloco.verso textarea{font-style:italic}
+.bloco.nota textarea{font-size:14px;color:var(--mut)}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+details{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-top:14px;background:var(--campo)}
+details summary{cursor:pointer;font-weight:600}
+details .linha{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+details input[type=text]{flex:1;min-width:140px;border:1px solid var(--bd);border-radius:6px;padding:4px 8px;background:var(--painel)}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:80vw}
+#toast.on{opacity:.95}
+.fim{padding:60px 24px;text-align:center;font-size:16px}
+@media (max-width:1000px){
+  body{display:block}
+  main{display:block}
+  nav{display:flex;overflow-x:auto;gap:4px;border-right:0;border-bottom:1px solid var(--bd)}
+  nav .item{width:auto;white-space:nowrap}
+  .col{overflow:visible;border-right:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><span id="livro">Revisão do OCR</span><span class="sub">compare a imagem com o texto e corrija o que for preciso</span></h1>
+  <label>Mostrar:
+    <select id="filtro" aria-label="Filtro de páginas">
+      <option value="sinalizadas">Páginas sinalizadas</option>
+      <option value="nao_revisadas">Não revisadas</option>
+      <option value="todas">Todas</option>
+    </select>
+  </label>
+  <div class="ia-ctl" id="ia-ctl" hidden>
+    <label>Sugestões por IA:
+      <select id="ia-escopo" aria-label="Escopo das sugestões por IA">
+        <option value="pagina">esta página</option>
+        <option value="sinalizadas">páginas sinalizadas</option>
+        <option value="todas">todas as páginas</option>
+      </select>
+    </label>
+    <button id="ia-rodar" class="pequeno">Sugerir</button>
+    <button id="ia-parar" class="pequeno" hidden>Parar</button>
+    <span id="ia-status" class="mut" aria-live="polite"></span>
+  </div>
+  <div class="prog"><span id="progtxt"></span><progress id="prog" max="1" value="0"></progress></div>
+  <button id="concluir" class="primario">Concluir revisão</button>
+</header>
+<main id="principal">
+  <nav id="lista" aria-label="Páginas"></nav>
+  <section class="col imagem" id="painel-img">
+    <div class="barra">
+      <button id="zmenos" class="pequeno" aria-label="Diminuir">−</button>
+      <span id="zoomtxt" class="mut">100%</span>
+      <button id="zmais" class="pequeno" aria-label="Aumentar">+</button>
+      <label class="mut"><input type="checkbox" id="vercaixas" checked> marcar palavras duvidosas</label>
+    </div>
+    <div class="folha" id="folha"><img id="img" alt="Imagem da página escaneada"><div id="caixas"></div></div>
+  </section>
+  <section class="col texto" id="painel-txt">
+    <div class="barra">
+      <button id="ant" class="pequeno" aria-label="Página anterior">←</button>
+      <strong id="pagtit"></strong>
+      <button id="prox" class="pequeno" aria-label="Próxima página">→</button>
+      <span id="pagnota" class="mut"></span>
+    </div>
+    <div class="conteudo">
+      <p class="aviso-pag" id="motivos"></p>
+      <div class="iabox" id="ia-sug" hidden></div>
+      <div class="sugestoes" id="sug"></div>
+      <div id="blocos"></div>
+      <div class="acoes">
+        <button id="addbloco">+ bloco</button>
+        <button id="salvar" class="primario">Salvar e próxima (Ctrl+Enter)</button>
+        <button id="marcar">Só marcar como revisada</button>
+      </div>
+      <details id="global">
+        <summary>Localizar e substituir no livro todo</summary>
+        <div class="linha">
+          <input type="text" id="de" placeholder="Localizar (ex.: Leuchttunn)" aria-label="Localizar">
+          <input type="text" id="para" placeholder="Substituir por" aria-label="Substituir por">
+        </div>
+        <div class="linha">
+          <label><input type="checkbox" id="palavra" checked> palavra inteira</label>
+          <label><input type="checkbox" id="caixa"> ignorar maiúsculas</label>
+          <button id="contar" class="pequeno">Contar</button>
+          <button id="substituir" class="pequeno">Substituir tudo</button>
+          <span id="subres" class="mut" aria-live="polite"></span>
+        </div>
+      </details>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+const $ = (s, r = document) => r.querySelector(s);
+const TIPOS = {paragrafo: "Parágrafo", titulo: "Título", verso: "Verso", nota: "Nota", legenda: "Legenda", separador: "Separador"};
+
+function el(tag, props = {}, ...filhos) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const f of filhos.flat()) if (f != null) e.append(f.nodeType ? f : document.createTextNode(f));
+  return e;
+}
+
+async function api(caminho, corpo) {
+  const opt = {headers: {"X-Token": TOKEN}};
+  if (corpo !== undefined) {
+    opt.method = "POST";
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(corpo);
+  }
+  const r = await fetch(caminho, opt);
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r.json();
+}
+
+let tt;
+function aviso(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(tt);
+  tt = setTimeout(() => t.classList.remove("on"), 3200);
+}
+
+const S = {indice: null, atual: null, pagina: null, blocos: [], sujo: false, zoom: 1, filtro: "sinalizadas",
+           ia: null, iaSug: [], iaOcupado: false};
+
+// ---------------------------------------------------------------- lista de páginas
+function paginasFiltradas() {
+  const ps = S.indice.paginas;
+  if (S.filtro === "sinalizadas") return ps.filter(p => p.sinalizada || p.n === S.atual);
+  if (S.filtro === "nao_revisadas") return ps.filter(p => !p.revisada || p.n === S.atual);
+  return ps;
+}
+
+function desenharLista() {
+  const nav = $("#lista");
+  const rolagem = nav.scrollTop;
+  nav.replaceChildren();
+  for (const p of paginasFiltradas()) {
+    const selos = el("span", {class: "selos"});
+    if (p.sinalizada) selos.append(el("span", {class: "selo sinal", title: p.motivos.join("; ") || "sinalizada", text: "!"}));
+    if (p.ia) selos.append(el("span", {class: "selo ia", title: `${p.ia} sugestão(ões) da IA para conferir`, text: `IA ${p.ia}`}));
+    if (p.editada) selos.append(el("span", {class: "selo edit", title: "editada", text: "✎"}));
+    if (p.revisada) selos.append(el("span", {class: "selo rev", title: "revisada", text: "✓"}));
+    const b = el("button", {class: "item", "data-n": p.n, onclick: () => abrir(p.n)}, el("span", {text: `p. ${p.n}`}), selos);
+    if (p.n === S.atual) b.setAttribute("aria-current", "true");
+    nav.append(b);
+  }
+  const total = S.indice.paginas.length;
+  const feitas = S.indice.paginas.filter(p => p.revisada).length;
+  const alvo = S.indice.paginas.filter(p => p.sinalizada);
+  const feitasAlvo = alvo.filter(p => p.revisada).length;
+  $("#prog").max = Math.max(1, alvo.length || total);
+  $("#prog").value = alvo.length ? feitasAlvo : feitas;
+  $("#progtxt").textContent = alvo.length ? `${feitasAlvo} de ${alvo.length} sinalizadas revisadas` : `${feitas} de ${total} revisadas`;
+  const ativo = nav.querySelector("[aria-current=true]");
+  if (S.rolarLista !== false && ativo && ativo.scrollIntoView) ativo.scrollIntoView({block: "nearest"});
+  else nav.scrollTop = rolagem;
+}
+
+// ---------------------------------------------------------------- página
+async function abrir(n) {
+  if (S.sujo) await salvar(null);
+  const dados = await api(`/api/pagina/${n}`);
+  S.atual = n; S.pagina = dados; S.blocos = dados.blocos.map(b => ({...b})); S.sujo = false;
+  const p = S.indice.paginas.find(x => x.n === n);
+  $("#pagtit").textContent = `Página ${n} de ${S.indice.paginas.length}`;
+  const pt = dados.ponto || {};
+  $("#pagnota").textContent = pt.conf != null ? `confiança ${Math.round(pt.conf)}% · pontuação ${Math.round(pt.score)}` : "";
+  $("#motivos").textContent = p && p.motivos.length ? "Atenção: " + p.motivos.join("; ") + "." : "";
+  $("#img").src = `/img/${n}?t=${encodeURIComponent(TOKEN)}`;
+  $("#painel-img").scrollTop = 0; $("#painel-txt").scrollTop = 0;
+  S.iaSug = dados.ia || [];
+  desenharCaixas(); desenharSugestoes(); desenharBlocos(); desenharIA(); desenharLista();
+}
+
+function desenharCaixas() {
+  const c = $("#caixas");
+  c.replaceChildren();
+  for (const [x, y, w, h, conf, txt] of S.pagina.caixas) {
+    const d = el("div", {class: "caixa" + (conf < 45 ? " c0" : ""), title: `“${txt}” — confiança ${Math.round(conf)}%`,
+      onclick: () => irParaPalavra(txt)});
+    d.style.cssText = `left:${x * 100}%;top:${y * 100}%;width:${w * 100}%;height:${h * 100}%`;
+    c.append(d);
+  }
+  $("#folha").classList.toggle("sem-caixas", !$("#vercaixas").checked);
+}
+
+function desenharSugestoes() {
+  const s = $("#sug");
+  s.replaceChildren();
+  for (const sg of S.pagina.sugestoes) {
+    s.append(el("span", {class: "chip", title: `“${sg.para}” aparece ${sg.freq_para}× no livro; “${sg.de}” só ${sg.n}×`},
+      el("span", {}, "sugestão: ", el("b", {text: sg.de}), " → ", el("b", {text: sg.para})),
+      el("button", {class: "pequeno", onclick: () => substituirNaPagina(sg.de, sg.para)}, "aqui"),
+      el("button", {class: "pequeno", onclick: () => substituirNoLivro(sg.de, sg.para)}, "no livro todo")));
+  }
+}
+
+function autoaltura(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; }
+
+function desenharBlocos() {
+  const box = $("#blocos");
+  box.replaceChildren();
+  S.blocos.forEach((b, i) => {
+    const ta = el("textarea", {"aria-label": `Texto do bloco ${i + 1}`, spellcheck: "false"});
+    ta.value = b.texto;
+    ta.addEventListener("input", () => { b.texto = ta.value; S.sujo = true; autoaltura(ta); });
+    const tipo = el("select", {"aria-label": "Tipo do bloco", onchange: e => { b.tipo = e.target.value; S.sujo = true; desenharBlocos(); }});
+    for (const [v, r] of Object.entries(TIPOS)) { const o = el("option", {value: v, text: r}); if (v === b.tipo) o.selected = true; tipo.append(o); }
+    const topo = el("div", {class: "topo"}, tipo);
+    if (b.tipo === "titulo") {
+      const nv = el("select", {"aria-label": "Nível do título", onchange: e => { b.nivel = +e.target.value; S.sujo = true; }});
+      for (let k = 1; k <= 4; k++) { const o = el("option", {value: k, text: `nível ${k}`}); if (k === (b.nivel || 1)) o.selected = true; nv.append(o); }
+      topo.append(nv);
+    }
+    topo.append(el("span", {class: "esp"}));
+    if (i > 0) topo.append(el("button", {class: "pequeno", title: "Juntar com o bloco anterior", onclick: () => juntar(i)}, "↑ juntar"));
+    topo.append(el("button", {class: "pequeno", title: "Dividir no cursor", onclick: () => dividir(i, ta)}, "✂ dividir"));
+    topo.append(el("button", {class: "pequeno", title: "Descartar este bloco", onclick: () => descartar(i)}, "✕"));
+    box.append(el("div", {class: `bloco ${b.tipo}`}, topo, ta));
+    requestAnimationFrame(() => autoaltura(ta));
+  });
+  if (!S.blocos.length) box.append(el("p", {class: "mut", text: "Sem texto nesta página (use “+ bloco” se faltar algo)."}));
+}
+
+function juntar(i) {
+  const a = S.blocos[i - 1], b = S.blocos[i];
+  a.texto = a.texto.replace(/\s+$/, "") + (a.tipo === "verso" ? "\n" : " ") + b.texto.replace(/^\s+/, "");
+  S.blocos.splice(i, 1); S.sujo = true; desenharBlocos();
+}
+function dividir(i, ta) {
+  const pos = ta.selectionStart, t = ta.value;
+  const a = t.slice(0, pos).trim(), b = t.slice(pos).trim();
+  if (!a || !b) { aviso("Coloque o cursor no ponto onde o bloco deve ser dividido."); return; }
+  S.blocos[i].texto = a;
+  S.blocos.splice(i + 1, 0, {...S.blocos[i], texto: b});
+  S.sujo = true; desenharBlocos();
+}
+function descartar(i) {
+  S.blocos.splice(i, 1); S.sujo = true; desenharBlocos();
+}
+$("#addbloco").onclick = () => { S.blocos.push({tipo: "paragrafo", texto: "", nivel: 1}); S.sujo = true; desenharBlocos(); const t = document.querySelectorAll("#blocos textarea"); if (t.length) t[t.length - 1].focus(); };
+
+function irParaPalavra(txt) {
+  const palavra = txt.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const tas = [...document.querySelectorAll("#blocos textarea")];
+  for (const ta of tas) {
+    const j = palavra ? ta.value.indexOf(palavra) : -1;
+    if (j >= 0) { ta.focus(); ta.setSelectionRange(j, j + palavra.length); ta.scrollIntoView({block: "center"}); return; }
+  }
+  aviso("Não achei essa palavra no texto (talvez já tenha sido corrigida).");
+}
+
+function substituirNaPagina(de, para) {
+  const rx = new RegExp("(?<![\\p{L}\\p{N}_])" + de.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![\\p{L}\\p{N}_])", "gu");
+  let k = 0;
+  for (const b of S.blocos) b.texto = b.texto.replace(rx, () => { k++; return para; });
+  if (k) { S.sujo = true; desenharBlocos(); aviso(`${k} troca(s) nesta página.`); } else aviso("Nada para trocar nesta página.");
+}
+
+async function substituirNoLivro(de, para, simular) {
+  if (S.sujo) await salvar(null);
+  const base = {de, para, palavra_inteira: true, ignorar_caixa: false};
+  const prev = await api("/api/substituir", {...base, aplicar: false});
+  if (!prev.ocorrencias) { aviso("Nenhuma ocorrência no livro."); return; }
+  if (!confirm(`Trocar “${de}” por “${para}” em ${prev.ocorrencias} lugar(es), em ${prev.paginas} página(s)?`)) return;
+  await api("/api/substituir", {...base, aplicar: true});
+  aviso(`${prev.ocorrencias} troca(s) feitas.`);
+  await recarregarIndice(); await abrir(S.atual);
+}
+
+
+// ---------------------------------------------------------------- sugestões por IA (só sugerem; você decide)
+const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function msgErro(e) { try { return JSON.parse(e.message).erro || e.message; } catch { return e.message; } }
+
+function comum(texto, ctx, sufixo) {
+  let k = 0;
+  if (sufixo) while (k < ctx.length && k < texto.length && texto[texto.length - 1 - k] === ctx[ctx.length - 1 - k]) k++;
+  else while (k < ctx.length && k < texto.length && texto[k] === ctx[k]) k++;
+  return k;
+}
+
+// onde, no texto que está na tela agora (com edições ainda não salvas), a sugestão se aplica; null = não se aplica mais
+function localizarIA(sg) {
+  const ini = /^[\p{L}\p{N}]/u.test(sg.de) ? "(?<![\\p{L}\\p{N}])" : "";
+  const fim = /[\p{L}\p{N}]$/u.test(sg.de) ? "(?![\\p{L}\\p{N}])" : "";
+  const rx = new RegExp(ini + esc(sg.de) + fim, "gu");
+  let melhor = null;
+  S.blocos.forEach((b, i) => {
+    for (const m of b.texto.matchAll(rx)) {
+      const a = b.texto.slice(0, m.index), d = b.texto.slice(m.index + sg.de.length);
+      const pt = comum(a, sg.antes, true) + comum(d, sg.depois, false) + (i === sg.bloco ? 0.5 : 0);
+      if (!melhor || pt > melhor.pt) melhor = {i, ini: m.index, fim: m.index + sg.de.length, pt};
+    }
+  });
+  return melhor;
+}
+
+function desenharIA() {
+  const box = $("#ia-sug");
+  box.replaceChildren();
+  const itens = [];
+  for (const sg of S.iaSug) { const loc = localizarIA(sg); if (loc) itens.push({sg, loc}); }
+  if (!itens.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const ids = itens.map(x => x.sg);
+  box.append(el("div", {class: "cab"},
+    el("h3", {text: `Sugestões da IA (${itens.length}) — confira cada uma; nada muda sem você aceitar`}),
+    el("button", {class: "pequeno", onclick: () => aceitarIA(ids)}, "aceitar todas"),
+    el("button", {class: "pequeno", onclick: () => rejeitarIA(ids)}, "rejeitar todas")));
+  for (const {sg, loc} of itens) {
+    const t = S.blocos[loc.i].texto;
+    const antes = t.slice(Math.max(0, loc.ini - 22), loc.ini), depois = t.slice(loc.fim, loc.fim + 22);
+    const tx = el("span", {class: "tx", title: "Clique para ver no texto", onclick: () => irParaIA(loc)},
+      el("span", {class: "ctx", text: (loc.ini > 22 ? "…" : "") + antes}),
+      sg.de ? el("del", {text: sg.de}) : "", sg.de && sg.para ? " → " : "",
+      sg.para ? el("ins", {text: sg.para}) : el("em", {class: "conf", text: " (apagar)"}),
+      el("span", {class: "ctx", text: depois + (t.length > loc.fim + 22 ? "…" : "")}));
+    const item = el("div", {class: "item"}, tx);
+    if (sg.conf != null) item.append(el("span", {class: "conf", title: "Confiança do OCR nessa palavra", text: `OCR ${sg.conf}%`}));
+    item.append(el("button", {class: "pequeno", onclick: () => aceitarIA([sg])}, "aceitar"),
+                el("button", {class: "pequeno", onclick: () => rejeitarIA([sg])}, "rejeitar"));
+    box.append(item);
+  }
+  box.append(el("p", {class: "nota", text: "O modelo pode errar: ele não conhece o livro. Conferir com a imagem da página é o que vale."}));
+}
+
+function irParaIA(loc) {
+  const ta = document.querySelectorAll("#blocos textarea")[loc.i];
+  if (ta) { ta.focus(); ta.setSelectionRange(loc.ini, loc.fim); ta.scrollIntoView({block: "center"}); }
+}
+
+async function aceitarIA(lista) {
+  const feitos = [];
+  for (const sg of lista) {
+    const loc = localizarIA(sg);   // de novo a cada uma: as trocas anteriores mudam as posições
+    if (!loc) continue;
+    const b = S.blocos[loc.i];
+    b.texto = b.texto.slice(0, loc.ini) + sg.para + b.texto.slice(loc.fim);
+    feitos.push(sg.id);
+  }
+  if (!feitos.length) return;
+  S.sujo = true;
+  S.iaSug = S.iaSug.filter(x => !feitos.includes(x.id));
+  desenharBlocos(); desenharIA();
+  try { await api("/api/ia/aceitar", {ids: feitos}); } catch (e) { aviso("Erro: " + msgErro(e)); }
+  aviso(`${feitos.length} troca(s) aplicada(s) — salve a página (Ctrl+Enter) quando terminar.`);
+}
+
+async function rejeitarIA(lista) {
+  const ids = lista.map(x => x.id);
+  S.iaSug = S.iaSug.filter(x => !ids.includes(x.id));
+  desenharIA();
+  try { await api("/api/ia/rejeitar", {ids}); await atualizarBadgeIA(); } catch (e) { aviso("Erro: " + msgErro(e)); }
+}
+
+async function atualizarBadgeIA() {
+  const antes = S.indice.paginas.map(p => p.ia).join();
+  const novo = await api("/api/indice");
+  S.indice.paginas.forEach((p, i) => { const q = novo.paginas.find(x => x.n === p.n); if (q) p.ia = q.ia; });
+  if (S.indice.paginas.map(p => p.ia).join() !== antes) { S.rolarLista = false; desenharLista(); S.rolarLista = true; }
+}
+
+function atualizarIAUI() {
+  const ia = S.ia, t = ia.trabalho || {};
+  const botao = $("#ia-rodar");
+  botao.disabled = !ia.disponivel || !!t.ativo || S.iaOcupado;
+  botao.title = ia.disponivel ? `Modelo: ${ia.modelo}${ia.aviso ? " — " + ia.aviso : ""}` : (ia.motivo || "indisponível");
+  $("#ia-parar").hidden = !t.ativo;
+  const st = $("#ia-status");
+  st.title = ia.aviso || ia.motivo || "";
+  if (t.ativo) st.textContent = `IA ${t.feitas}/${t.total}${t.atual ? ` (p. ${t.atual})` : ""} · ${t.sugestoes} sugestão(ões)`;
+  else if (S.iaOcupado) st.textContent = "IA pensando… (leva alguns segundos)";
+  else if (!ia.disponivel) st.textContent = "indisponível — passe o mouse";
+  else if (ia.aviso) st.textContent = "⚠ modelo de tradução";
+  else st.textContent = t.erro ? "erro: " + t.erro : "";
+}
+
+let pollIA = null;
+function acompanharIA() {
+  if (pollIA) return;
+  pollIA = setInterval(async () => {
+    try {
+      S.ia = await api("/api/ia");
+      atualizarIAUI();
+      if (S.atual != null) {
+        const r = await api(`/api/ia/pagina/${S.atual}`);
+        if (r.sugestoes.map(x => x.id).join() !== S.iaSug.map(x => x.id).join()) { S.iaSug = r.sugestoes; desenharIA(); }
+      }
+      await atualizarBadgeIA();
+      if (!S.ia.trabalho.ativo) {
+        clearInterval(pollIA); pollIA = null;
+        const t = S.ia.trabalho;
+        aviso(t.erro ? `IA parou: ${t.erro}` : t.parar ? `IA parada: ${t.sugestoes} sugestão(ões) em ${t.feitas} página(s).` : `IA terminou: ${t.sugestoes} sugestão(ões) em ${t.feitas} página(s).`);
+      }
+    } catch (e) { clearInterval(pollIA); pollIA = null; aviso("IA: " + msgErro(e)); }
+  }, 2000);
+}
+
+$("#ia-rodar").onclick = async () => {
+  const escopo = $("#ia-escopo").value;
+  try {
+    if (S.sujo) await salvar(null);
+    if (escopo === "pagina") {
+      const n = S.atual;
+      S.iaOcupado = true; atualizarIAUI();
+      const r = await api(`/api/ia/pagina/${n}`, {});
+      if (S.atual === n) { S.iaSug = r.sugestoes; desenharIA(); }
+      aviso(r.sugestoes.length ? `${r.sugestoes.length} sugestão(ões) da IA para a página ${n}.` : `A IA não encontrou o que corrigir na página ${n}.`);
+      await atualizarBadgeIA();
+    } else {
+      const r = await api("/api/ia/lote", {escopo});
+      if (r.nada) aviso("Nenhuma página pendente: as que sobraram já têm sugestões ou foram revisadas.");
+      else { S.ia.trabalho = r; atualizarIAUI(); acompanharIA(); }
+    }
+  } catch (e) { aviso("IA: " + msgErro(e)); }
+  finally { S.iaOcupado = false; try { S.ia = await api("/api/ia"); } catch {} atualizarIAUI(); }
+};
+$("#ia-parar").onclick = async () => { try { await api("/api/ia/parar", {}); aviso("Parando depois da página atual."); } catch (e) { aviso("Erro: " + msgErro(e)); } };
+
+async function iniciarIA() {
+  if (!S.indice.ia) return;
+  $("#ia-ctl").hidden = false;
+  S.ia = {disponivel: false, motivo: "verificando o Ollama…", trabalho: {ativo: false}};
+  atualizarIAUI();
+  try { S.ia = await api("/api/ia"); } catch (e) { S.ia = {disponivel: false, motivo: msgErro(e), trabalho: {ativo: false}}; }
+  atualizarIAUI();
+  if (S.ia.trabalho.ativo) acompanharIA();
+}
+
+// ---------------------------------------------------------------- salvar e navegar
+async function salvar(revisada) {
+  if (S.atual == null) return;
+  const r = await api(`/api/pagina/${S.atual}`, {blocos: S.blocos.filter(b => b.texto.trim()), revisada});
+  S.sujo = false;
+  const i = S.indice.paginas.findIndex(p => p.n === S.atual);
+  if (i >= 0 && r.indice) S.indice.paginas[i] = r.indice;
+}
+
+async function proximaDaLista() {
+  const ps = paginasFiltradas(), i = ps.findIndex(p => p.n === S.atual);
+  const depois = ps.slice(i + 1).find(p => !p.revisada) || ps.slice(i + 1)[0];
+  return depois ? depois.n : null;
+}
+
+async function salvarEProxima() {
+  await salvar(true);
+  const prox = await proximaDaLista();
+  if (prox != null) await abrir(prox);
+  else { desenharLista(); aviso("Fim da lista. Clique em “Concluir revisão” quando terminar."); }
+}
+
+async function mover(delta) {
+  const ps = paginasFiltradas(), i = ps.findIndex(p => p.n === S.atual), alvo = ps[i + delta];
+  if (alvo) await abrir(alvo.n);
+}
+
+async function recarregarIndice() { S.indice = await api("/api/indice"); }
+
+$("#salvar").onclick = () => salvarEProxima().catch(e => aviso("Erro ao salvar: " + e.message));
+$("#marcar").onclick = async () => { try { await salvar(true); desenharLista(); aviso("Página marcada como revisada."); } catch (e) { aviso("Erro: " + e.message); } };
+$("#ant").onclick = () => mover(-1);
+$("#prox").onclick = () => mover(1);
+$("#filtro").onchange = e => { S.filtro = e.target.value; desenharLista(); };
+$("#vercaixas").onchange = () => $("#folha").classList.toggle("sem-caixas", !$("#vercaixas").checked);
+function zoom(f) { S.zoom = Math.min(3, Math.max(0.5, S.zoom * f)); $("#folha").style.width = `calc(${S.zoom * 100}% - 24px)`; $("#zoomtxt").textContent = Math.round(S.zoom * 100) + "%"; }
+$("#zmais").onclick = () => zoom(1.2);
+$("#zmenos").onclick = () => zoom(1 / 1.2);
+
+$("#contar").onclick = async () => {
+  const r = await api("/api/substituir", {de: $("#de").value, para: $("#para").value, palavra_inteira: $("#palavra").checked, ignorar_caixa: $("#caixa").checked, aplicar: false});
+  $("#subres").textContent = `${r.ocorrencias} ocorrência(s) em ${r.paginas} página(s)`;
+};
+$("#substituir").onclick = async () => {
+  const de = $("#de").value, para = $("#para").value;
+  if (!de) { aviso("Digite o que localizar."); return; }
+  if (S.sujo) await salvar(null);
+  const base = {de, para, palavra_inteira: $("#palavra").checked, ignorar_caixa: $("#caixa").checked};
+  const prev = await api("/api/substituir", {...base, aplicar: false});
+  if (!prev.ocorrencias) { $("#subres").textContent = "nenhuma ocorrência"; return; }
+  if (!confirm(`Trocar em ${prev.ocorrencias} lugar(es), em ${prev.paginas} página(s)?`)) return;
+  await api("/api/substituir", {...base, aplicar: true});
+  $("#subres").textContent = `${prev.ocorrencias} troca(s) feitas`;
+  await recarregarIndice(); await abrir(S.atual);
+};
+
+$("#concluir").onclick = async () => {
+  try {
+    if (S.sujo) await salvar(null);
+    await recarregarIndice();
+    const pend = S.indice.paginas.filter(p => p.sinalizada && !p.revisada).length;
+    if (pend && !confirm(`Ainda há ${pend} página(s) sinalizada(s) sem revisar. Concluir mesmo assim?`)) return;
+    const iaPend = S.indice.paginas.reduce((a, p) => a + (p.ia || 0), 0);
+    if (iaPend && !confirm(`Há ${iaPend} sugestão(ões) da IA que você ainda não aceitou nem rejeitou. Elas NÃO serão aplicadas. Concluir mesmo assim?`)) return;
+    if (S.ia && S.ia.trabalho && S.ia.trabalho.ativo && !confirm("A IA ainda está trabalhando e será interrompida. Concluir mesmo assim?")) return;
+    await api("/api/concluir", {});
+    document.body.replaceChildren(el("div", {class: "fim"}, el("h1", {text: "Revisão concluída"}), el("p", {text: "Pode fechar esta aba e voltar ao terminal: o programa continua sozinho."})));
+  } catch (e) { aviso("Erro: " + e.message); }
+};
+
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); $("#salvar").click(); }
+  else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); mover(1); }
+  else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); mover(-1); }
+});
+window.addEventListener("beforeunload", e => { if (S.sujo) { e.preventDefault(); e.returnValue = ""; } });
+
+(async function iniciar() {
+  try {
+    await recarregarIndice();
+    $("#livro").textContent = "Revisão do OCR — " + S.indice.titulo;
+    document.title = "Revisão do OCR — " + S.indice.titulo;
+    S.filtro = S.indice.paginas.some(p => p.sinalizada) ? S.indice.filtro : "todas";
+    if (S.filtro === "nenhuma") S.filtro = "todas";
+    $("#filtro").value = S.filtro;
+    const ps = paginasFiltradas();
+    iniciarIA();
+    if (!ps.length) { desenharLista(); return; }
+    await abrir((ps.find(p => !p.revisada) || ps[0]).n);
+  } catch (e) { aviso("Não consegui carregar: " + e.message); }
+})();
+</script>
+</body>
+</html>
