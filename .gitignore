@@ -13,5 +13,5 @@ __pycache__/
 /pharos.sh
 
 # Dados de projetos (livros extraídos/traduzidos): não versionar
-/naylor1/
+/translated
 *.zip
