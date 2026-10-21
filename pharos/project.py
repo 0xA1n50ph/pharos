@@ -69,6 +69,10 @@ class Project:
         return self.root / "review" / "report.md"
 
     @property
+    def boundaries_path(self) -> Path:
+        return self.root / "review" / "boundaries.json"
+
+    @property
     def ocr_dir(self) -> Path:
         return self.root / "ocr"          # OCR result per page (p0001.json...)
 

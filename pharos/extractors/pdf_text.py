@@ -258,8 +258,24 @@ def _ends_sentence(t: str) -> bool:
     return t.rstrip()[-1:] in _END_PUNCTUATION
 
 
+def _paragraph_gap(pages, body: float) -> float:
+    """Vertical gap above which consecutive body lines belong to different paragraphs.
+
+    A fixed fraction of the type size breaks on 1.5- or double-spaced text, where the normal gap between
+    the lines of one paragraph is already larger than that; so it is also scaled by the typical gap."""
+    gaps = []
+    for _, _, _, lines in pages:
+        for a, b in zip(lines, lines[1:]):
+            if a.cat == b.cat == "body" and abs(a.size - body) <= 0.6 and abs(b.size - body) <= 0.6:
+                gap = b.top - a.bottom
+                if 0 <= gap < 1.5 * body:
+                    gaps.append(gap)
+    typical = statistics.median(gaps) if len(gaps) >= 5 else 0.0
+    return max(0.45 * body, 1.6 * typical)
+
+
 def _page_blocks(lines: list[_Line], body: float, margin: float, median: float,
-                 levels: dict[float, int]) -> tuple[list[Block], set[int]]:
+                 levels: dict[float, int], paragraph_gap: float) -> tuple[list[Block], set[int]]:
     """Returns the page's blocks and the set of id()s of those starting with a paragraph indent."""
     groups: list[list[_Line]] = []
     for l in lines:
@@ -277,7 +293,7 @@ def _page_blocks(lines: list[_Line], body: float, margin: float, median: float,
             new_group = bool(_RE_NOTE_START.match(l.text)) and _ends_sentence(prev.text)
         else:
             indent = l.x0 - margin > 0.8 * body
-            new_group = gap > 0.45 * body or (indent and _ends_sentence(prev.text))
+            new_group = gap > paragraph_gap or (indent and _ends_sentence(prev.text))
         if new_group:
             groups.append([l])
         else:
@@ -369,11 +385,12 @@ def extract_blocks(path: Path, pages: set[int] | None = None, progress=None, req
     headers = _remove_headers(pages_read)
     body, margin, median = _statistics(pages_read)
     levels = _classify(pages_read, body)
+    paragraph_gap = _paragraph_gap(pages_read, body)
 
     blocks: list[Block] = []
     indented: set[int] = set()
     for _, _, _, lines in pages_read:
-        bl, ind = _page_blocks(lines, body, margin, median, levels)
+        bl, ind = _page_blocks(lines, body, margin, median, levels, paragraph_gap)
         blocks.extend(bl)
         indented |= ind
     report = {

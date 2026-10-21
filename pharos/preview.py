@@ -7,6 +7,7 @@ import webbrowser
 from datetime import datetime
 
 from . import glossary as gl
+from .boundaries import POSSIBLE_SPLIT, load_suspects
 from .config import Config, language_name
 from .export import _esc, page_html
 from .model import Block, Book, PARAGRAPH, TITLE
@@ -52,12 +53,13 @@ def select_snippet(book: Book, cfg: Config, offset: int = 0) -> tuple[list[Block
     return blocks, used
 
 
-def _html_lines(blocks, results, base):
+def _html_lines(blocks, results, base, suspects=frozenset()):
     lines = []
     for n, b in enumerate(blocks, 1):
         r = results[b.id]
         lines.append({
-            "n": n, "kind": b.kind, "orig": b.text, "trans": r.text, "alerts": r.alerts,
+            "n": n, "kind": b.kind, "orig": b.text, "trans": r.text,
+            "alerts": r.alerts + ([POSSIBLE_SPLIT] if b.id in suspects else []),
             "base": base[b.id].text if base else None,
         })
     return lines
@@ -117,7 +119,7 @@ def preview_cycle(proj: Project, cfg: Config, profile: Profile, ollama: Ollama, 
         labels = (language_name(cfg.source).capitalize(), "Translation with profile", "Without profile (base)")
         html_path = folder / "preview.html"
         html_path.write_text(
-            page_html(f"Preview v{version} — {book.title}", subtitle, _html_lines(blocks, results, base), labels),
+            page_html(f"Preview v{version} — {book.title}", subtitle, _html_lines(blocks, results, base, load_suspects(proj.boundaries_path)), labels),
             encoding="utf-8",
         )
         _show_in_terminal(ui, blocks, results)

@@ -40,6 +40,7 @@ python tests/test_flow.py     # full pipeline vs a fake Ollama (needs reportlab,
 python tests/test_ocr.py      # OCR + review; needs real Tesseract ('eng'); browser test uses Playwright if present
 python tests/test_ai.py       # AI OCR-correction suggestions (parts A–D need no Tesseract/Ollama)
 python tests/test_setup.py    # setup.sh against fake brew/apt/ollama/tesseract/GitHub (1–3 min)
+python tests/test_boundaries.py  # paragraph-boundary check + 1.5-spaced PDF grouping (part B needs reportlab)
 ```
 
 `tests/fake_ollama.py` is a fake Ollama server (`/api/tags`, `/api/chat`, `/api/generate`, `/api/pull`) that
@@ -53,7 +54,11 @@ resume. `tests/samples.py` generates sample books (German/English PDFs, degraded
 
 Six stages, each guarded by a boolean in the project's `state.json` so a re-run resumes instead of redoing:
 
-1. **Extraction** — detect file type by content (`detection.py`), route to an extractor or to OCR.
+1. **Extraction** — detect file type by content (`detection.py`), route to an extractor or to OCR. Then
+   `boundaries.check_boundaries()` runs on every `Book`: rejoins paragraphs cut mid-word/mid-sentence
+   (hyphen + lowercase, no punctuation + lowercase, trailing comma/function word) and only *flags* the
+   ambiguous case (no punctuation + capital — every German noun is capitalised) in `review/boundaries.json`,
+   shown as `possible_split` in the preview and `review/report.md`.
 2. **Language** — detect source language by sampling paragraphs (`language.py`), confirm with user.
 3. **Configuration** — title, author, target language, glossary, output formats.
 4. **Profile & preview** — build a translation profile, translate ~3 pages, show side-by-side HTML, let the user refine.

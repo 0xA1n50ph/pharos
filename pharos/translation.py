@@ -285,14 +285,18 @@ def fetch_translations(book: Book, translator: Translator) -> tuple[dict[str, st
     return texts, results
 
 
-def alerts_report(book: Book, results: dict[str, Result]) -> str:
-    """Markdown with the passages that deserve a human review."""
+def alerts_report(book: Book, results: dict[str, Result], suspects: set[str] = frozenset()) -> str:
+    """Markdown with the passages that deserve a human review.
+
+    suspects = ids of the blocks that end abruptly and may be one paragraph cut in two (see boundaries.py)."""
     lines = ["# Review report", ""]
     counts: dict[str, int] = {}
     items = []
     for ch in book.chapters:
         for b in ch.blocks:
             r = results.get(b.id)
+            if r and b.id in suspects:
+                r = Result(r.text, r.alerts + ["possible_split"], r.attempts, r.from_cache)
             if r and set(r.alerts) - INFORMATIONAL_ALERTS:
                 items.append((ch.title or "(start)", b, r))
                 for a in r.alerts:
@@ -302,7 +306,8 @@ def alerts_report(book: Book, results: dict[str, Result]) -> str:
         return "\n".join(lines) + "\n"
     lines.append("Alert summary: " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
     lines.append("")
-    lines.append("`review` = attempts exhausted and the best version was kept; `pending` = not translated yet.")
+    lines.append("`review` = attempts exhausted and the best version was kept; `pending` = not translated yet; "
+                 "`possible_split` = ends without punctuation, may continue in the next passage.")
     lines.append("")
     for ch_title, b, r in items:
         lines.append(f"## {b.id} — {ch_title}" + (f" (p. {b.page})" if b.page else ""))
