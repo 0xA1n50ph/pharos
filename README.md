@@ -1,300 +1,357 @@
-# Pharos — tradutor de livros com IA local (Ollama)
+<h1 align="center">Pharos 🗼</h1>
 
-Traduz livros inteiros (PDF com texto **ou escaneado**, pasta de imagens de páginas, EPUB, TXT/Markdown e, com o
-Calibre instalado, MOBI/AZW3/FB2/DOCX) usando um modelo local do Ollama, com **perfil de tradução** (gênero,
-tom, regras, glossário), uma **prévia das 3 primeiras páginas para refinar o estilo** antes de gastar horas no
-livro todo, validação automática de cada trecho e retomada de onde parou.
+<p align="center">
+  <strong>Translate whole books on your own computer</strong> — from gothic-type scanned PDFs to
+  modern EPUBs — with a <strong>100% local</strong> AI model. Not a line of the book leaves your machine.
+</p>
 
-Livros escaneados passam por **OCR (Tesseract)** e por uma **tela de revisão** no navegador, onde você compara
-a imagem de cada página com o texto reconhecido e corrige o que for preciso *antes* de traduzir.
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white">
+  <img alt="Platform: macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey">
+  <img alt="100% local AI" src="https://img.shields.io/badge/AI-100%25%20local%20(Ollama)-6E56CF">
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen">
+</p>
 
-## Instalação
+**Pharos** takes a book in almost any format and gives back a **faithful** translation — no summarising,
+no "modernising", no inventing — using an [Ollama](https://ollama.com) model that runs offline on your
+machine. Built with hard works in mind: old, occult, philosophical or literary texts, including the ones
+that only exist as **gothic-type (Fraktur) scans**.
 
-```bash
-./setup.sh              # verifica e prepara tudo, perguntando antes de instalar (macOS e Linux)
-./pharos.sh livro.pdf    # atalho criado pelo setup: usa o ambiente .venv sem precisar "ativá-lo"
-```
+### ✨ Highlights
 
-O `setup.sh` confere e, no que faltar, prepara (cada passo só mexe no que falta; pode rodar quantas vezes quiser):
+- 🔒 **100% local and private** — the work's text never goes to the cloud; it works without internet once installed.
+- 📖 **Reads almost anything** — PDF (with text **or scanned**), folders of images, EPUB, TXT/Markdown and, with Calibre, MOBI/AZW3/FB2/DOCX.
+- 🔍 **OCR with human review** — Tesseract + a browser screen to compare image and text and fix things *before* translating, with gothic-type support.
+- 🎯 **Faithful translation, not "improved"** — a style profile (genre, tone, rules), a **mandatory glossary** and automatic validation that redoes the bad passages.
+- 👀 **Preview before spending hours** — translates ~3 pages and shows them side by side so you can tune the tone; only then does the whole book run.
+- ⏸️ **Resumable** — `Ctrl+C` at any time; the same command continues where it stopped (every paragraph is saved immediately).
+- 📦 **Exports** EPUB, DOCX, Markdown and a bilingual HTML edition, plus a report of what deserves a review.
 
-1. **Sistema:** SO, memória (modelos 12B pedem uns 10 GB), `curl`, gerenciador de pacotes (Homebrew, apt, dnf, pacman, zypper).
-2. **Python 3.10+** e o ambiente virtual `.venv` (instala o Python pelo gerenciador de pacotes, se você deixar).
-3. **Bibliotecas** do `requirements.txt` dentro do `.venv`, conferidas por importação.
-4. **OCR:** Tesseract e os idiomas `eng osd deu spa por` (via `brew`/`apt`; o que o pacote não trouxer é baixado do
-   repositório oficial do Tesseract) e os modelos de **letra gótica** `frk` e `deu_latf`.
-5. **Ollama** (local ou em outra máquina) e os modelos: `translategemma:12b` (obrigatório) e `gemma3:12b`
-   (opcional, usado só nas sugestões de correção do OCR). Baixa pela API do Ollama, com barra de progresso e
-   novas tentativas; se cair no meio, o download retoma de onde parou.
-6. **Opcionais:** Calibre (MOBI/AZW3/FB2/DOCX).
-7. **Conferência:** abre o próprio programa e confere se ele enxerga o Tesseract; cria o atalho `./pharos.sh`.
-
-Nada que peça senha de administrador (`sudo`) roda sem a sua confirmação; sem terminal interativo e sem `-y`, o
-script não instala pacotes do sistema nem baixa modelos (só prepara o `.venv`). O instalador oficial do Ollama no
-Linux (`curl ... | sh`) só roda com `--instalar-ollama` ou se você responder "sim" à pergunta. Termina com código 0
-quando o ambiente está pronto e 1 quando falta algo obrigatório (modelo de tradução, Python, bibliotecas, Ollama).
-
-| Opção do `setup.sh` | Efeito |
-|---|---|
-| `--verificar` | só diagnostica: não instala nem altera nada (bom para conferir uma máquina) |
-| `-y`, `--sim` | responde "sim" ao que é de rotina (perguntas de risco, como pouco espaço em disco, continuam "não") |
-| `--ollama URL` | Ollama em outra máquina (ex.: `http://pi.local:11434`); fica em `.setup.conf` e o `./pharos.sh` passa a usá-lo |
-| `--modelo NOME`, `--modelo-ocr NOME` | outro modelo de tradução / outro modelo geral para as sugestões de OCR (lembrados em `.setup.conf`) |
-| `--sem-modelos`, `--sem-modelo-ocr` | não baixa modelos (só confere) / não baixa o modelo das sugestões de OCR |
-| `--sem-ocr`, `--idiomas fra,ita` | pula o Tesseract / acrescenta idiomas de OCR |
-| `--python CMD`, `--sem-venv` | escolhe o interpretador / usa o Python direto, sem `.venv` |
-| `--dev` | também instala o necessário para rodar os testes (reportlab, playwright + Chromium) |
-| `--calibre`, `--instalar-ollama` | instala o Calibre / aceita o instalador oficial do Ollama (Linux) |
-| `--testar` | faz uma tradução curta com cada modelo para ver se carregam (leva alguns minutos) |
-
-Se preferir instalar à mão: `pip install -r requirements.txt` (Python 3.10+), `ollama pull translategemma:12b` e,
-para livros escaneados, `brew install tesseract tesseract-lang` (Linux: `apt install tesseract-ocr tesseract-ocr-deu ...`).
-O Ollama precisa estar rodando (app aberto ou `ollama serve`). Confira os idiomas do OCR com `tesseract --list-langs`:
-para alemão você precisa de `deu`; para livros impressos em letra gótica (Fraktur), de `frk` ou `deu_latf` também. Se
-faltar algum, o programa diz qual e como instalar.
-
-## Uso
+### 🚀 Quick start
 
 ```bash
-python pharos.py livro.pdf                    # fluxo guiado, com perguntas
-python pharos.py livro.epub --destino en
-python pharos.py livro.epub --modelo gemma3:12b --glossario meu_glossario.tsv
-python pharos.py livro/                       # retoma um projeto interrompido (ou rode o mesmo comando)
-python pharos.py livro.pdf --sim              # aceita as sugestões, sem perguntas (lote)
-python pharos.py scan.pdf --origem de         # scan: OCR em alemão (testa letra gótica sozinho) + revisão
-python pharos.py fotos_das_paginas/ --ocr-lang frk   # pasta de imagens, OCR em Fraktur
-python pharos.py livro/ --revisar-ocr         # reabre a revisão do OCR de um projeto já extraído
+git clone git@github.com:0xA1n50ph/pharos.git
+cd pharos
+./setup.sh                      # prepares everything (Python, Tesseract, Ollama, models), asking before installing
+./pharos.sh my_book.pdf         # guided flow: detects the language, tunes the style in the preview and translates
 ```
 
-| Opção | Efeito |
+> No interactive terminal? `setup.sh` never installs anything without confirmation. See [Installation](#installation) for the details and options.
+
+### 📑 Table of contents
+
+[Installation](#installation) · [Usage](#usage) · [The flow](#the-flow) · [Scanned books (OCR)](#scanned-books-ocr) ·
+[Translation profile](#translation-profile) · [Glossary](#glossary) · [Validation and report](#validation-and-report) ·
+[Project folder](#project-folder) · [Limitations](#limitations-of-this-version) · [Tests](#tests) ·
+[Contributing](#contributing) · [License](#license)
+
+## Installation
+
+```bash
+./setup.sh              # checks and prepares everything, asking before installing (macOS and Linux)
+./pharos.sh book.pdf    # shortcut created by setup: uses the .venv environment without "activating" it
+```
+
+`setup.sh` checks and, for whatever is missing, prepares (each step only touches what is missing; run it as often as you like):
+
+1. **System:** OS, memory (12B models ask for about 10 GB), `curl`, package manager (Homebrew, apt, dnf, pacman, zypper).
+2. **Python 3.10+** and the `.venv` virtual environment (installs Python via the package manager, if you let it).
+3. **Libraries** from `requirements.txt` inside the `.venv`, checked by import.
+4. **OCR:** Tesseract and the languages `eng osd deu spa por` (via `brew`/`apt`; whatever the package does not bring is downloaded
+   from Tesseract's official repository) and the **gothic-type** models `frk` and `deu_latf`.
+5. **Ollama** (local or on another machine) and the models: `translategemma:12b` (required) and `gemma3:12b`
+   (optional, used only for the OCR correction suggestions). Downloaded via Ollama's API, with a progress bar and
+   retries; if it drops mid-way, the download resumes where it stopped.
+6. **Optional:** Calibre (MOBI/AZW3/FB2/DOCX).
+7. **Check:** opens the program itself and confirms it sees Tesseract; creates the `./pharos.sh` shortcut.
+
+Nothing that asks for an administrator password (`sudo`) runs without your confirmation; with no interactive terminal and no `-y`, the
+script does not install system packages or download models (it only prepares the `.venv`). Ollama's official installer on
+Linux (`curl ... | sh`) only runs with `--install-ollama` or if you answer "yes" to the question. It exits with code 0
+when the environment is ready and 1 when something required is missing (translation model, Python, libraries, Ollama).
+
+| `setup.sh` option | Effect |
 |---|---|
-| `--origem` / `--destino` | idiomas (`de`, `es`, `en`, `pt`...). Sem elas o programa detecta e pergunta |
-| `--modelo`, `--modelo-analise` | modelo da tradução; modelo só para sugerir o perfil |
-| `--ollama URL` | Ollama em outra máquina (ex.: o Pi 5) |
-| `--glossario ARQ.tsv` | glossário inicial |
-| `--genero` | `ocultismo`, `ficcao`, `filosofia`, `religioso`, `academico`, `outro` |
-| `--formatos` | `epub,docx,md,html` |
-| `--previa-paginas N` | tamanho da prévia (padrão 3) |
-| `--sem-previa`, `--sem-contexto` | pula a prévia; não envia parágrafos anteriores como contexto |
-| `--exportar-apenas` | reexporta o que já está traduzido, sem chamar o modelo |
-| `--saida PASTA` | onde criar a pasta do projeto (padrão: pasta atual) |
-| `--ocr-lang CÓDIGO` | idioma/modelo do Tesseract: `deu`, `frk`, `deu_latf`, `deu+eng`... Sem isso, deduzido de `--origem` ou detectado |
-| `--revisar sinalizadas\|todas\|nenhuma` | revisão do OCR: só as páginas suspeitas, todas ou nenhuma (padrão: pergunta; com `--sim`: nenhuma) |
-| `--revisar-ocr` | reabre a revisão do OCR de um projeto já extraído; só o que mudou é retraduzido |
-| `--ocr-forcar` | refaz o OCR mesmo havendo resultado salvo, inclusive num projeto já extraído (as edições da revisão antiga ficam em `ocr_revisao.antigo.json`) |
-| `--paginas-duplas auto\|sim\|nao` | imagens com duas páginas lado a lado: separar ou não (padrão: auto, com confirmação) |
-| `--usar-camada-embutida` | scan que já traz texto embutido: usar esse texto em vez de refazer o OCR |
-| `--ocr-imagens` | PDF de texto com algumas páginas só de imagem: ler essas páginas com OCR |
-| `--ocr-dpi N`, `--ocr-processos N` | resolução de leitura (padrão 300) e páginas em paralelo (padrão: núcleos − 1, máx. 8) |
-| `--modelo-ocr MODELO` | modelo do Ollama que **sugere** correções de OCR na tela de revisão (padrão: um modelo geral instalado, como `gemma3`; o de tradução não é ideal) |
-| `--sugestoes-ia sinalizadas\|todas` | já pede ao modelo sugestões de correção em segundo plano quando a revisão abre (sem isso, use o botão da tela) |
-| `--sem-navegador` | não abre o navegador na revisão; só mostra o endereço (útil por SSH) |
+| `--check` | only diagnoses: installs and changes nothing (good for checking a machine) |
+| `-y`, `--yes` | answers "yes" to routine things (risky questions, such as low disk space, stay "no") |
+| `--ollama URL` | Ollama on another machine (e.g.: `http://pi.local:11434`); saved in `.setup.conf` and `./pharos.sh` starts using it |
+| `--model NAME`, `--ocr-model NAME` | another translation model / another general model for the OCR suggestions (remembered in `.setup.conf`) |
+| `--no-models`, `--no-ocr-model` | do not download models (only check) / do not download the OCR-suggestions model |
+| `--no-ocr`, `--languages fra,ita` | skip Tesseract / add OCR languages |
+| `--python CMD`, `--no-venv` | choose the interpreter / use Python directly, without `.venv` |
+| `--dev` | also install what is needed to run the tests (reportlab, playwright + Chromium) |
+| `--calibre`, `--install-ollama` | install Calibre / accept Ollama's official installer (Linux) |
+| `--test` | do a short translation with each model to see that they load (takes a few minutes) |
 
-## O fluxo
+If you prefer to install by hand: `pip install -r requirements.txt` (Python 3.10+), `ollama pull translategemma:12b` and,
+for scanned books, `brew install tesseract tesseract-lang` (Linux: `apt install tesseract-ocr tesseract-ocr-deu ...`).
+Ollama needs to be running (app open or `ollama serve`). Check the OCR languages with `tesseract --list-langs`:
+for German you need `deu`; for books printed in gothic type (Fraktur), `frk` or `deu_latf` too. If
+any is missing, the program tells you which and how to install it.
 
-1. **Arquivo.** Identifica o formato pelo conteúdo. Em PDF, classifica cada página (texto, scan ou texto
-   embutido por outra ferramenta de OCR), propõe o método de extração e pede confirmação. Scan ou pasta de
-   imagens seguem para o OCR (próxima seção); PDF misto lê o texto direto onde há e usa OCR no resto.
-2. **Idioma.** Detecta o idioma amostrando parágrafos de várias partes do livro (inclui latim) e pede
-   confirmação.
-3. **Configuração.** Título, autor, idioma de destino, glossário e formatos de saída. É tudo que o programa
-   pergunta antes da prévia.
-4. **Perfil e prévia.** O programa propõe um perfil (a IA analisa trechos do livro, se você quiser), traduz
-   ~3 páginas e mostra **lado a lado** em `previa/vN/previa.html`. Menu:
+## Usage
 
-   | Tecla | Ação |
+```bash
+python pharos.py book.pdf                     # guided flow, with questions
+python pharos.py book.epub --target en
+python pharos.py book.epub --model gemma3:12b --glossary my_glossary.tsv
+python pharos.py book/                         # resumes an interrupted project (or run the same command)
+python pharos.py book.pdf --yes               # accept the suggestions, no questions (batch)
+python pharos.py scan.pdf --source de         # scan: OCR in German (tests gothic type on its own) + review
+python pharos.py page_photos/ --ocr-lang frk   # a folder of images, OCR in Fraktur
+python pharos.py book/ --review-ocr           # reopens the OCR review of an already-extracted project
+```
+
+| Option | Effect |
+|---|---|
+| `--source` / `--target` | languages (`de`, `es`, `en`, `pt`...). Without them the program detects and asks |
+| `--model`, `--analysis-model` | translation model; model used only to suggest the profile |
+| `--ollama URL` | Ollama on another machine (e.g.: the Pi 5) |
+| `--glossary FILE.tsv` | initial glossary |
+| `--genre` | `occult`, `fiction`, `philosophy`, `religious`, `academic`, `other` |
+| `--formats` | `epub,docx,md,html` |
+| `--preview-pages N` | preview size (default 3) |
+| `--no-preview`, `--no-context` | skip the preview; do not send previous paragraphs as context |
+| `--extract-only` | only extract the text (includes OCR and review) and stop; no translation, no Ollama needed |
+| `--export-only` | re-export what is already translated, without calling the model |
+| `--output DIR` | where to create the project folder (default: current folder) |
+| `--ocr-lang CODE` | Tesseract language/model: `deu`, `frk`, `deu_latf`, `deu+eng`... Without it, derived from `--source` or detected |
+| `--review flagged\|all\|none` | OCR review: only the suspect pages, all or none (default: asks; with `--yes`: none) |
+| `--review-ocr` | reopens the OCR review of an already-extracted project; only what changed is re-translated |
+| `--ocr-force` | redo the OCR even if there is a saved result, including in an already-extracted project (the old review edits go to `ocr_review.old.json`) |
+| `--double-pages auto\|yes\|no` | images with two pages side by side: split them or not (default: auto, with confirmation) |
+| `--use-embedded-layer` | scan that already carries embedded text: use that text instead of redoing the OCR |
+| `--ocr-images` | text PDF with a few image-only pages: read those pages with OCR |
+| `--ocr-dpi N`, `--ocr-processes N` | read resolution (default 300) and pages in parallel (default: cores − 1, max. 8) |
+| `--ocr-model MODEL` | Ollama model that **suggests** OCR fixes in the review screen (default: an installed general model, like `gemma3`; the translation one is not ideal) |
+| `--ai-suggestions flagged\|all` | already ask the model for fix suggestions in the background when the review opens (without it, use the on-screen button) |
+| `--no-browser` | do not open the browser in the review; just show the address (useful over SSH) |
+
+## The flow
+
+1. **File.** Identifies the format by its content. For a PDF, it classifies each page (text, scan or text
+   embedded by another OCR tool), proposes the extraction method and asks for confirmation. A scan or a folder of
+   images goes to OCR (next section); a mixed PDF reads the text directly where there is any and uses OCR on the rest.
+2. **Language.** Detects the language by sampling paragraphs from several parts of the book (Latin included) and asks
+   for confirmation.
+3. **Configuration.** Title, author, target language, glossary and output formats. That is everything the program
+   asks before the preview.
+4. **Profile and preview.** The program proposes a profile (the AI analyses snippets of the book, if you want), translates
+   ~3 pages and shows them **side by side** in `preview/vN/preview.html`. Menu:
+
+   | Key | Action |
    |---|---|
-   | `a` | aprovar e traduzir o livro inteiro |
-   | `t` | ajustar o tom/registro |
-   | `r` | adicionar regra de fidelidade |
-   | `g` | adicionar termo ao glossário |
-   | `e` | corrigir um parágrafo: vira exemplo para o modelo **e** vale na versão final |
-   | `c` | comparar com a tradução sem perfil (mostra o que o perfil muda) |
-   | `o` | testar outro trecho do livro |
-   | `m` | trocar o modelo |
-   | `s` | sair (o projeto fica salvo) |
+   | `a` | approve and translate the whole book |
+   | `t` | adjust the tone/register |
+   | `r` | add a fidelity rule |
+   | `g` | add a term to the glossary |
+   | `e` | fix a paragraph: becomes an example for the model **and** applies to the final version |
+   | `c` | compare with the translation without a profile (shows what the profile changes) |
+   | `o` | try another snippet of the book |
+   | `m` | change the model |
+   | `s` | quit (the project is saved) |
 
-   Cada versão da prévia guarda seu perfil e glossário em `previa/vN/`. As traduções da prévia aprovada são
-   reaproveitadas na tradução do livro.
-5. **Tradução.** Roda sozinha, parágrafo a parágrafo, com os parágrafos anteriores como contexto. `Ctrl+C`
-   interrompe; o mesmo comando retoma de onde parou (cada parágrafo é gravado na hora).
-6. **Exportação.** EPUB, DOCX, Markdown e edição bilíngue em HTML, mais `revisao/relatorio.md`.
+   Each preview version keeps its profile and glossary in `preview/vN/`. The translations of the approved preview are
+   reused in the book's translation.
+5. **Translation.** Runs on its own, paragraph by paragraph, with the previous paragraphs as context. `Ctrl+C`
+   interrupts; the same command resumes where it stopped (every paragraph is written immediately).
+6. **Export.** EPUB, DOCX, Markdown and a bilingual HTML edition, plus `review/report.md`.
 
-## Livros escaneados (OCR)
+## Scanned books (OCR)
 
-Entram no OCR: PDF escaneado, PDF misto, pasta de imagens (`.jpg`, `.png`, `.tif`...; a ordem vem do nome do
-arquivo, `pagina_2` antes de `pagina_10`) e TIFF de várias páginas.
+These go to OCR: a scanned PDF, a mixed PDF, a folder of images (`.jpg`, `.png`, `.tif`...; the order comes from the
+file name, `page_2` before `page_10`) and a multi-page TIFF.
 
-1. **Idioma e modelo.** Com `--origem de` o programa usa `deu`. Sem isso, faz um OCR de amostra em duas páginas
-   (ou lê o texto selecionável, em PDF misto) e pede confirmação. **Para alemão, testa o modelo normal contra os
-   de letra gótica** (`frk`, `deu_latf`) em páginas de amostra e sugere o que leu com mais confiança; se o livro
-   parece gótico e você não tem o modelo, avisa como instalar.
-2. **Páginas duplas.** Se a maioria das imagens é mais larga que alta, pergunta se deve separar esquerda e
-   direita (a sombra da lombada é descartada).
-3. **Preparo e leitura.** Para cada página: ilumina por igual (sombras, foto com luz irregular), endireita a
-   inclinação (até ±5°), gira páginas de lado ou de cabeça para baixo (quando a leitura vem ruim e o modelo
-   `osd` está instalado) e roda o Tesseract, várias páginas em paralelo. Cada página é salva em `ocr/` assim que
-   termina: `Ctrl+C` e o mesmo comando retomam do ponto em que parou.
-4. **Estrutura.** A partir das palavras e posições reconhecidas, o programa remove cabeçalhos e números de
-   página, separa notas de rodapé, reconhece títulos (por tamanho e centralização), versos/citações (linhas
-   curtas ou recuadas), parágrafos (recuo, espaçamento, fim de linha), junta parágrafos que atravessam a página
-   e desfaz hifenização.
-5. **Qualidade.** Cada página recebe uma pontuação (confiança do Tesseract, palavras duvidosas, aparência de
-   texto sem sentido). Abaixo de 85, ou com muitas palavras duvidosas, é **sinalizada**. Se mais da metade
-   ficar ruim, o programa avisa (idioma errado? letra gótica? scan fraco?) e oferece refazer o OCR com outro
-   modelo na hora.
-6. **Revisão.** O programa pergunta se você quer revisar só as sinalizadas (recomendado), todas ou nenhuma, e
-   abre uma tela no navegador (servidor local, só nesta máquina, protegido por token):
-   - esquerda: lista de páginas, com filtro (sinalizadas / não revisadas / todas);
-   - centro: a imagem da página, com **caixas nas palavras duvidosas** (clique numa caixa e o cursor vai para a
-     palavra no texto) e zoom;
-   - direita: o texto em blocos editáveis. Dá para mudar o tipo do bloco (parágrafo, título e nível, verso,
-     nota), **juntar** com o anterior, **dividir** no cursor, apagar ou acrescentar;
-   - **sugestões** de correção pelo próprio livro (uma palavra rara parecida com uma palavra frequente do mesmo
-     livro: `lighthonse` → `lighthouse`), aplicáveis na página ou no livro todo;
-   - **sugestões por IA** (opcional, veja abaixo): um modelo de linguagem aponta erros de OCR; você aceita ou
-     rejeita cada um;
-   - **localizar e substituir no livro todo**, com contagem antes de aplicar;
-   - `Ctrl+Enter` salva e vai para a próxima; `Alt+←/→` navega; `Concluir revisão` fecha a etapa.
+1. **Language and model.** With `--source de` the program uses `deu`. Without it, it does a sample OCR on two pages
+   (or reads the selectable text, in a mixed PDF) and asks for confirmation. **For German, it tests the normal model against the
+   gothic-type ones** (`frk`, `deu_latf`) on sample pages and suggests the one it read with more confidence; if the book
+   looks gothic and you do not have the model, it tells you how to install it.
+2. **Double pages.** If most images are wider than tall, it asks whether it should split left and
+   right (the spine shadow is discarded).
+3. **Preparation and reading.** For each page: evens the lighting (shadows, a photo with uneven light), straightens the
+   skew (up to ±5°), rotates pages that are sideways or upside down (when the reading comes out bad and the `osd` model
+   is installed) and runs Tesseract, several pages in parallel. Each page is saved to `ocr/` as soon as it
+   finishes: `Ctrl+C` and the same command resume from where they stopped.
+4. **Structure.** From the recognised words and positions, the program removes headers and page
+   numbers, separates footnotes, recognises titles (by size and centring), verse/quotations (short
+   or indented lines), paragraphs (indent, spacing, end of line), joins paragraphs that cross the page
+   and undoes hyphenation.
+5. **Quality.** Each page gets a score (Tesseract confidence, doubtful words, nonsense-looking
+   text). Below 85, or with many doubtful words, it is **flagged**. If more than half
+   come out bad, the program warns you (wrong language? gothic type? weak scan?) and offers to redo the OCR with another
+   model on the spot.
+6. **Review.** The program asks whether you want to review only the flagged ones (recommended), all or none, and
+   opens a screen in the browser (local server, this machine only, token-protected):
+   - left: the list of pages, with a filter (flagged / not reviewed / all);
+   - centre: the page image, with **boxes on the doubtful words** (click a box and the cursor goes to the
+     word in the text) and zoom;
+   - right: the text in editable blocks. You can change the block kind (paragraph, title and level, verse,
+     note), **merge** with the previous one, **split** at the cursor, delete or add;
+   - **suggestions** of corrections from the book itself (a rare word similar to a frequent word in the same
+     book: `lighthonse` → `lighthouse`), applicable on the page or in the whole book;
+   - **AI suggestions** (optional, see below): a language model points out OCR errors; you accept or
+     reject each one;
+   - **find and replace in the whole book**, with a count before applying;
+   - `Ctrl+Enter` saves and moves to the next; `Alt+←/→` navigates; `Finish review` closes the step.
 
-   Tudo é gravado a cada ação em `revisao/ocr_revisao.json`. `Ctrl+C` no terminal pausa; ao rodar de novo, a
-   revisão reabre do ponto em que estava. Com `--revisar-ocr` você volta a ela mesmo depois de extrair o livro
-   (por exemplo, ao notar um erro de OCR na prévia da tradução); o cache de tradução é por conteúdo, então só os
-   trechos alterados são retraduzidos.
-   **Sugestões por IA.** No topo da tela, "Sugestões por IA" pede a um modelo do Ollama que aponte erros de OCR
-   na página atual, nas páginas sinalizadas ou em todas (a passada roda em segundo plano, mostra o andamento,
-   tem botão **Parar** e as sugestões vão aparecendo enquanto você revisa; `--sugestoes-ia` já a inicia ao abrir
-   a revisão). Cada sugestão aparece como `trecho atual → trecho proposto`, com o contexto e a confiança que o
-   OCR tinha na palavra; **aceitar** aplica na caixa de texto (você ainda salva a página), **rejeitar** a
-   esconde de vez. A regra é: **o modelo sugere, você decide**. Nada muda no livro sem um clique seu, e ao
-   concluir a revisão a tela avisa quantas sugestões pendentes não serão aplicadas. Para um livro com
-   linguagem ocultista ou literária isso importa, então o programa também barra, **antes** de mostrar:
-   - trocas em palavras que o OCR leu com confiança alta (90% ou mais);
-   - qualquer troca que mude **números**, pontuação, ou que acrescente/apague palavras (só se apaga símbolo
-     que o OCR inventou, como `|` ou `~`);
-   - a "modernização" de grafia antiga (`Thür` → `Tür`, `seyn` → `sein`, `Muth` → `Mut`): grafia do autor não é erro;
-   - trocas por palavra muito diferente da lida, e respostas que parecem tradução ou reescrita do bloco;
-   - e só vão ao modelo os blocos que têm alguma palavra de confiança baixa (o resto não precisa).
+   Everything is written on every action to `review/ocr_review.json`. `Ctrl+C` in the terminal pauses; when you run again, the
+   review reopens from where it was. With `--review-ocr` you go back to it even after extracting the book
+   (for example, when you notice an OCR error in the translation preview); the translation cache is by content, so only the
+   changed passages are re-translated.
+   **AI suggestions.** At the top of the screen, "AI suggestions" asks an Ollama model to point out OCR errors
+   on the current page, on the flagged pages or on all of them (the pass runs in the background, shows progress,
+   has a **Stop** button and the suggestions appear while you review; `--ai-suggestions` already starts it when the
+   review opens). Each suggestion appears as `current fragment → proposed fragment`, with the context and the confidence the
+   OCR had for the word; **accept** applies it to the text box (you still save the page), **reject** hides it
+   for good. The rule is: **the model suggests, you decide**. Nothing changes in the book without a click of yours, and when
+   the review finishes the screen warns how many pending suggestions will not be applied. For a book with
+   occult or literary language this matters, so the program also blocks, **before** showing them:
+   - changes to words the OCR read with high confidence (90% or more);
+   - any change that alters **numbers**, punctuation, or that adds/removes words (it only deletes a symbol
+     the OCR invented, such as `|` or `~`);
+   - the "modernisation" of old spelling (`Thür` → `Tür`, `seyn` → `sein`, `Muth` → `Mut`): the author's spelling is not an error;
+   - changes to a word very different from the one read, and answers that look like a translation or a rewrite of the block;
+   - and only the blocks that have some low-confidence word go to the model (the rest do not need it).
 
-   O texto do livro é enviado ao modelo como dado a corrigir, nunca como instrução, e o resultado só vale depois
-   dessas validações e do seu clique. Ainda assim o modelo não conhece o livro e pode errar: confira com a imagem.
-   O modelo é escolhido por `--modelo-ocr`; sem ele, usa um modelo geral instalado (`gemma3`, `qwen`, `llama3`,
-   `mistral`, o maior que couber em 14B) porque o TranslateGemma tende a traduzir em vez de corrigir (se for o
-   único instalado, o programa usa e avisa). As sugestões ficam em `revisao/ocr_sugestoes_ia.json` e o modelo é
-   descarregado da memória ao fechar a revisão. Num Pi 5 isso é lento: rode a passada no Mac (`--ollama`).
-7. **Texto final.** O livro montado (com as suas correções) vira `extraido/livro.md` e `livro.json`, e a
-   tradução segue como nos outros formatos. `revisao/ocr_qualidade.md` lista as páginas sinalizadas, revisadas e
-   editadas.
+   The book's text is sent to the model as data to be fixed, never as instructions, and the result only counts after
+   those validations and your click. Even so the model does not know the book and can be wrong: check against the image.
+   The model is chosen by `--ocr-model`; without it, it uses an installed general model (`gemma3`, `qwen`, `llama3`,
+   `mistral`, the largest that fits in 14B) because TranslateGemma tends to translate instead of fix (if it is the
+   only one installed, the program uses it and warns). The suggestions live in `review/ocr_ai_suggestions.json` and the model is
+   unloaded from memory when the review closes. On a Pi 5 this is slow: run the pass on the Mac (`--ollama`).
+7. **Final text.** The assembled book (with your corrections) becomes `extracted/book.md` and `book.json`, and the
+   translation proceeds as in the other formats. `review/ocr_quality.md` lists the flagged, reviewed and
+   edited pages.
 
-**Dicas para o scan:** 300 dpi, preto e branco ou cinza, páginas retas. Foto de celular funciona, mas com
-luz uniforme e sem dedos na página. O programa corrige inclinação leve e sombras, não dobras nem páginas
-curvas perto da lombada.
+**Scan tips:** 300 dpi, black and white or grayscale, straight pages. A phone photo works, but with
+even light and no fingers on the page. The program corrects a slight skew and shadows, not folds or pages
+curved near the spine.
 
-## Perfil de tradução
+## Translation profile
 
-`perfil.json` guarda: gênero, descrição da obra, **registro/tom**, **regras de fidelidade** (não omitir, não
-acrescentar, não modernizar...) e **exemplos** corrigidos por você. Os textos que vão para o modelo ficam em
-inglês (modelos seguem melhor); você pode escrever o tom em português. Para o TranslateGemma, o prompt segue o
-formato oficial do modelo, com as instruções extras entre a frase de papel e o pedido. Para modelos de chat
-(Gemma 3, Qwen, Llama), usa mensagem de sistema + exemplos.
+`profile.json` keeps: genre, work description, **register/tone**, **fidelity rules** (do not omit, do not
+add, do not modernise...) and **examples** you corrected. The texts that go to the model are in
+English (models follow them better). For TranslateGemma, the prompt follows the model's official
+format, with the extra instructions between the role sentence and the request. For chat models
+(Gemma 3, Qwen, Llama), it uses a system message + examples.
 
-## Glossário
+## Glossary
 
-`glossario.tsv`, uma linha por termo, separado por TAB: `termo no original`, `tradução obrigatória`, `nota`.
-
-```
-Sephiroth	Sefirot	nome hebraico, transliteração usual em português
-```
-
-Só os termos presentes em cada parágrafo vão no prompt (aceita flexões no fim da palavra). Depois da
-tradução, o programa confere se cada termo foi aplicado; se não, refaz o parágrafo.
-
-## Validação e relatório
-
-Cada trecho traduzido passa por: resposta vazia, ainda no idioma original, idêntica ao original, tamanho
-muito diferente (omissão/acréscimo), quebras de linha a mais, contagem de linhas em versos e aplicação do
-glossário. Se falhar, refaz até 3 vezes dizendo ao modelo o que estava errado. O que esgotar as tentativas é
-mantido (a melhor versão) e listado em `revisao/relatorio.md` para revisão humana.
-
-## Pasta do projeto
+`glossary.tsv`, one line per term, TAB-separated: `source term`, `required translation`, `note`.
 
 ```
-nome-do-livro/
-  original/        arquivo enviado
-  extraido/        livro.md (texto no idioma original) e livro.json (formato interno)
-  ocr/             (scans) resultado do OCR de cada página: palavras, posições e confiança
-  paginas/         (scans) imagem preparada de cada página, usada na tela de revisão
-  previa/vN/       cada rodada da prévia: previa.html, perfil.json, glossario.tsv
-  traduzido/       cache.jsonl (uma linha por parágrafo) e correcoes.json (suas correções à mão)
-  revisao/         relatorio.md, paginas_sem_texto.txt, ocr_qualidade.md, ocr_revisao.json (suas correções do OCR)
-                   e ocr_sugestoes_ia.json (sugestões da IA, com o que você aceitou e rejeitou)
-  saida/           EPUB, DOCX, Markdown e edição bilíngue
-  config.json  estado.json  perfil.json  glossario.tsv
+Sephiroth	Sefirot	Hebrew name, usual transliteration in Portuguese
 ```
 
-`config.json` tem ajustes finos: `temperatura`, `num_ctx`, `contexto_blocos`, `max_tentativas`,
-`max_caracteres_bloco`, `estilo_prompt` (`auto`, `translategemma` ou `chat`) e, para o OCR, `ocr_psm`,
-`ocr_dpi`, `ocr_limiar_palavra` (confiança abaixo da qual uma palavra é "duvidosa", padrão 70) e
-`ocr_limiar_pagina` (pontuação abaixo da qual a página é sinalizada, padrão 85) e `modelo_ocr` (modelo das
-sugestões por IA).
+Only the terms present in each paragraph go into the prompt (word-ending inflections are accepted). After
+the translation, the program checks that each term was applied; if not, it redoes the paragraph.
 
-## Limitações desta versão
+## Validation and report
 
-- **OCR:** só foi testado com Tesseract em **inglês**. A escolha de modelo (inclusive Fraktur), a detecção de
-  idioma e o aviso de instalação são testados com um Tesseract simulado; na prática, a qualidade em alemão e
-  em letra gótica depende dos modelos instalados e do estado do scan. Revise as primeiras páginas antes de
-  confiar no resto.
-- **`setup.sh`:** foi testado no Linux contra ferramentas e servidores simulados (macOS, Homebrew, Ollama e GitHub
-  de mentira; veja `tests/teste_setup.py`). Não foi rodado num Mac de verdade, no bash 3.2 do macOS, com
-  `ollama pull` real (≈ 16 GB), com o PyPI nem com o download real dos dados do Tesseract. Se algum passo falhar na sua
-  máquina, `./setup.sh --verificar` mostra o estado e o script pode ser rodado de novo: ele retoma de onde parou.
-- **Sugestões por IA:** só foram testadas com um Ollama simulado (um "modelo" que corrige exatamente os erros do
-  OCR, mais iscas que as validações têm de barrar). Quanto o `gemma3:12b` real acerta em alemão ou em Fraktur
-  ainda não foi medido: comece por uma página e veja se as sugestões ajudam. Elas só pegam erros em palavras de
-  confiança baixa; erro "confiante" do OCR (palavra real errada, lida com 90%+) só aparece na sua leitura.
-- O OCR não lê escrita à mão, nem livros de duas colunas ou tabelas complexas com a ordem certa; marcadores de
-  nota de rodapé (¹) às vezes são lidos como `!` ou `1`. Livros com muitas ilustrações geram páginas
-  "sem texto" que aparecem como sinalizadas; marque-as como revisadas.
-- PDF de texto com poucas páginas só de imagem (capa, pranchas): essas páginas ficam de fora e são listadas em
-  `revisao/paginas_sem_texto.txt` (use `--ocr-imagens` para lê-las).
-- Em PDF misto, páginas duplas não são separadas e cabeçalhos repetidos só são removidos se aparecerem em
-  3 páginas ou mais de cada parte.
-- PDFs de duas colunas e tabelas complexas podem sair com a ordem de leitura trocada.
-- Imagens e capa não são levadas para o EPUB/DOCX traduzido.
-- Arquivos com DRM não são lidos.
-- A detecção de idioma cobre alemão, inglês, espanhol, francês, italiano, português, holandês, latim e
-  idiomas de outros alfabetos (russo, grego, hebraico, árabe, coreano, japonês, chinês). Para outros
-  idiomas, digite o código na confirmação.
-- O TranslateGemma é um modelo de tradução e pode seguir instruções de estilo pior do que um modelo de chat.
-  Use a opção `c` da prévia para ver se o perfil muda o resultado; se não mudar, teste `--modelo gemma3:12b`.
+Each translated passage goes through: empty answer, still in the source language, identical to the source, very
+different length (omission/addition), extra line breaks, line count in verse and glossary
+application. If it fails, it redoes it up to 3 times telling the model what was wrong. Whatever exhausts the attempts is
+kept (the best version) and listed in `review/report.md` for a human review.
 
-## Testes
+## Project folder
+
+```
+book-name/
+  original/        the submitted file
+  extracted/       book.md (text in the original language) and book.json (internal format)
+  ocr/             (scans) OCR result of each page: words, positions and confidence
+  pages/           (scans) prepared image of each page, used in the review screen
+  preview/vN/      each preview round: preview.html, profile.json, glossary.tsv
+  translated/      cache.jsonl (one line per paragraph) and corrections.json (your hand corrections)
+  review/          report.md, pages_without_text.txt, ocr_quality.md, ocr_review.json (your OCR corrections)
+                   and ocr_ai_suggestions.json (the AI suggestions, with what you accepted and rejected)
+  output/          EPUB, DOCX, Markdown and the bilingual edition
+  config.json  state.json  profile.json  glossary.tsv
+```
+
+`config.json` has fine-tuning: `temperature`, `num_ctx`, `context_blocks`, `max_attempts`,
+`max_block_chars`, `prompt_style` (`auto`, `translategemma` or `chat`) and, for OCR, `ocr_psm`,
+`ocr_dpi`, `ocr_word_threshold` (confidence below which a word is "doubtful", default 70),
+`ocr_page_threshold` (score below which the page is flagged, default 85) and `ocr_model` (the model for the
+AI suggestions).
+
+## Limitations of this version
+
+- **OCR:** only tested with Tesseract in **English**. The model choice (Fraktur included), the language
+  detection and the install warning are tested with a simulated Tesseract; in practice, the quality in German and
+  in gothic type depends on the installed models and the state of the scan. Review the first pages before
+  trusting the rest.
+- **`setup.sh`:** tested on Linux against simulated tools and servers (fake macOS, Homebrew, Ollama and GitHub;
+  see `tests/test_setup.py`). It has not been run on a real Mac, on the macOS bash 3.2, with a real
+  `ollama pull` (≈ 16 GB), against PyPI or with a real download of the Tesseract data. If a step fails on your
+  machine, `./setup.sh --check` shows the state and the script can be run again: it resumes where it stopped.
+- **AI suggestions:** only tested with a simulated Ollama (a "model" that fixes exactly the OCR's
+  errors, plus traps the validations must block). How much the real `gemma3:12b` gets right in German or in Fraktur
+  has not been measured yet: start with one page and see whether the suggestions help. They only catch errors in
+  low-confidence words; a "confident" OCR error (a real wrong word, read at 90%+) only shows up in your reading.
+- OCR does not read handwriting, nor two-column books or complex tables in the right order; footnote
+  markers (¹) are sometimes read as `!` or `1`. Books with many illustrations produce "no text"
+  pages that appear as flagged; mark them as reviewed.
+- A text PDF with a few image-only pages (cover, plates): those pages are left out and are listed in
+  `review/pages_without_text.txt` (use `--ocr-images` to read them).
+- In a mixed PDF, double pages are not split and repeated headers are only removed if they appear on
+  3 pages or more of each part.
+- Two-column PDFs and complex tables may come out with the reading order mixed up.
+- Images and the cover are not carried into the translated EPUB/DOCX.
+- Files with DRM are not read.
+- Language detection covers German, English, Spanish, French, Italian, Portuguese, Dutch, Latin and
+  languages in other alphabets (Russian, Greek, Hebrew, Arabic, Korean, Japanese, Chinese). For other
+  languages, type the code at the confirmation.
+- TranslateGemma is a translation model and may follow style instructions worse than a chat model.
+  Use the preview's `c` option to see whether the profile changes the result; if it does not, try `--model gemma3:12b`.
+
+## Tests
 
 ```bash
-./setup.sh --dev                                 # (ou: pip install reportlab pillow numpy pypdfium2 playwright)
-python tests/teste_fluxo.py                      # tradução, prévia, glossário, EPUB/PDF/TXT
-python tests/teste_ocr.py                        # OCR e revisão (precisa do Tesseract com 'eng')
-python tests/teste_ia.py                         # sugestões de correção por IA (partes A–D rodam sem Tesseract)
-python tests/teste_setup.py                      # o setup.sh, com ferramentas e servidores de mentira (1–3 min)
+./setup.sh --dev                                 # (or: pip install reportlab pillow numpy pypdfium2 playwright)
+python tests/test_flow.py                        # translation, preview, glossary, EPUB/PDF/TXT
+python tests/test_ocr.py                         # OCR and review (needs Tesseract with 'eng')
+python tests/test_ai.py                          # AI correction suggestions (parts A–D run without Tesseract)
+python tests/test_setup.py                       # setup.sh, with fake tools and servers (1–3 min)
 ```
 
-`teste_fluxo.py` roda o fluxo inteiro contra `tests/ollama_falso.py`, um servidor que imita a API do Ollama
-(com falhas injetadas), sem precisar de modelo.
+`test_flow.py` runs the whole flow against `tests/fake_ollama.py`, a server that imitates the Ollama API
+(with injected failures), without needing a model.
 
-`teste_ocr.py` gera livros escaneados de amostra (inclinados, com ruído e sombra) e confere, com o Tesseract de
-verdade: inclinação e páginas duplas, scan em PDF, pasta de imagens (uma de cabeça para baixo), PDF misto,
-texto embutido, similaridade do texto reconhecido com o original (≥ 98,5%), página ruim sinalizada, a tela de
-revisão pela API e no navegador (Playwright, se instalado), pausa e retomada, `--revisar-ocr` e o caminho
-scan → OCR → tradução → exportação. A lógica de idioma/Fraktur e a rota do PDF usam um Tesseract simulado.
+`test_ocr.py` generates sample scanned books (skewed, with noise and shadow) and checks, with the real Tesseract:
+skew and double pages, a PDF scan, a folder of images (one upside down), a mixed PDF,
+embedded text, similarity of the recognised text to the original (≥ 98.5%), a bad page flagged, the review
+screen through the API and in the browser (Playwright, if installed), pause and resume, `--review-ocr` and the
+scan → OCR → translation → export path. The language/Fraktur logic and the PDF route use a simulated Tesseract.
 
-`teste_ia.py` cobre as sugestões por IA: as validações (confiança alta, números, grafia antiga, acréscimos,
-reescrita, quebras de linha), o cache e a persistência, a passada em lote (parar, falhas do Ollama, modelo ausente),
-a garantia de que **gerar sugestões não altera o texto**, a API protegida por token, e, com o Tesseract de verdade,
-um scan degradado do início ao fim (aceitar uma sugestão a leva ao livro; rejeitar não; `--sugestoes-ia`) e a tela
-no navegador (aceitar, rejeitar, aceitar todas, Parar, selo por página, aviso ao concluir, modo escuro e celular).
+`test_ai.py` covers the AI suggestions: the validations (high confidence, numbers, old spelling, additions,
+rewrite, line breaks), the cache and persistence, the batch pass (stop, Ollama failures, missing model),
+the guarantee that **generating suggestions does not change the text**, the token-protected API, and, with the real Tesseract,
+a degraded scan from start to finish (accepting a suggestion takes it into the book; rejecting does not; `--ai-suggestions`) and the screen
+in the browser (accept, reject, accept all, Stop, per-page badge, finish warning, dark mode and mobile).
 
-`teste_setup.py` exercita o `setup.sh` sem internet e sem baixar nada: monta um "mundo" descartável com `brew`, `apt-get`,
-`sudo`, `uname` (macOS), `tesseract` e `ollama` falsos no PATH, um Ollama de mentira com `/api/pull` (progresso, quedas no
-meio, erros, modelo inexistente) e um servidor local no lugar do GitHub do Tesseract. Confere: `--verificar` sem efeitos
-colaterais, instalação completa e segunda execução idempotente, Python/Tesseract/Ollama ausentes, Ollama local parado e
-remoto, `.setup.conf` e `./pharos.sh`, pouco espaço em disco, execução sem terminal (nunca instala nem baixa sozinho),
-perguntas s/n num terminal de verdade (pty), Ctrl+C, e uma varredura por recursos do bash 4+ (o macOS traz o bash 3.2).
+`test_setup.py` exercises `setup.sh` with no internet and without downloading anything: it builds a throwaway "world" with fake `brew`, `apt-get`,
+`sudo`, `uname` (macOS), `tesseract` and `ollama` on the PATH, a fake Ollama with `/api/pull` (progress, mid-way
+drops, errors, nonexistent model) and a local server standing in for Tesseract's GitHub. It checks: `--check` with no side
+effects, a full install and an idempotent second run, Python/Tesseract/Ollama missing, local Ollama down and
+remote, `.setup.conf` and `./pharos.sh`, low disk space, running with no terminal (never installs or downloads on its own),
+y/n questions in a real terminal (pty), Ctrl+C, and a scan for bash 4+ features (macOS ships bash 3.2).
+
+## Contributing
+
+Contributions are welcome — OCR fixes, new languages, extractors, prompt improvements or just usage reports.
+
+- **Found a bug or have an idea?** Open an [issue](https://github.com/0xA1n50ph/pharos/issues) describing the
+  book format, the language, the model used and what happened (preferably with `review/report.md` or the error message).
+- **Sending a PR?** Run the tests first (`./setup.sh --dev` and the relevant `python tests/test_*.py`) and keep the
+  project's convention: **code, interface and comments in English**; only the text sent to the model is written in English too.
+- **Architecture:** the starting point is `CLAUDE.md`, which summarises the pipeline (extraction → language → profile/preview →
+  translation → export), the internal `Book` model and the OCR subsystem.
+
+The principle that guides the project: **the AI suggests, you decide.** Nothing enters the final text — not even an OCR fix —
+without passing the automatic validations and, where applicable, your approval.
+
+## License
+
+Distributed under the [MIT](LICENSE) license. Use, modify and share freely, keeping the copyright notice.

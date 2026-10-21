@@ -1,1 +1,1 @@
-"""OCR de livros escaneados: páginas -> Tesseract -> blocos do formato interno -> revisão humana."""
+"""OCR of scanned books: pages -> Tesseract -> internal-format blocks -> human review."""

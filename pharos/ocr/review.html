@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OCR Review</title>
+<style>
+:root{
+  --bg:#f4f3ef; --panel:#ffffff; --tx:#1c1c1e; --mut:#6b6b72; --bd:#d9d7d0; --ac:#2f5d8a; --ac-tx:#ffffff;
+  --ok:#2e7d4f; --warn:#b26a00; --bad:#b3261e; --sel:#e6eef7; --field:#fcfcfa; --ai:#6a3fa8; --ai-bg:#f3edfb;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#151517; --panel:#1e1e21; --tx:#ececee; --mut:#9b9ba3; --bd:#35353b; --ac:#7fb0e6; --ac-tx:#0f1418;
+  --ok:#6cc48a; --warn:#f0b050; --bad:#ff8a80; --sel:#26303b; --field:#19191c; --ai:#c8a8f4; --ai-bg:#2a2236;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+button,select,input,textarea{font:inherit;color:inherit}
+select{background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:3px 6px}
+select option{background:var(--panel);color:var(--tx)}
+@media (max-width:1600px){header .sub{display:none}}
+button{cursor:pointer;border:1px solid var(--bd);background:var(--panel);border-radius:6px;padding:5px 10px}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+button.primary{background:var(--ac);border-color:var(--ac);color:var(--ac-tx);font-weight:600}
+button.small{padding:2px 7px;font-size:12px}
+button:disabled{opacity:.5;cursor:default}
+header{display:flex;align-items:center;gap:16px;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:650}
+header .sub{color:var(--mut);margin-left:8px;font-weight:400}
+.prog{display:flex;align-items:center;gap:8px;margin-left:auto;color:var(--mut)}
+progress{width:140px;height:8px;accent-color:var(--ok)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1.05fr) minmax(0,1fr);gap:0}
+nav,.col{min-height:0;overflow:auto;background:var(--panel);border-right:1px solid var(--bd)}
+nav{padding:8px}
+nav .item{display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 3px;text-align:left;border-color:transparent;background:transparent}
+nav .item[aria-current=true]{background:var(--sel);border-color:var(--ac)}
+.badges{display:flex;gap:4px;font-size:12px}
+.badge{padding:0 5px;border-radius:9px;border:1px solid currentColor;font-size:11px}
+.badge.flag{color:var(--warn)} .badge.reviewed{color:var(--ok)} .badge.edited{color:var(--mut)} .badge.ai{color:var(--ai)}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--panel);z-index:2;flex-wrap:wrap}
+.bar .mut{color:var(--mut)}
+.image{background:var(--bg)}
+.sheet{position:relative;margin:12px;box-shadow:0 1px 6px rgba(0,0,0,.25);background:#fff}
+.sheet img{display:block;width:100%;height:auto}
+.box{position:absolute;border:1.5px solid #e08a00;background:rgba(255,170,40,.22);border-radius:2px;cursor:pointer}
+.box.c0{border-color:#c62828;background:rgba(220,50,50,.25)}
+.box:hover{background:rgba(255,170,40,.5)}
+.no-boxes .box{display:none}
+.text{background:var(--panel);border-right:0}
+.content{padding:12px}
+.page-warning{margin:0 0 10px;color:var(--warn)}
+.suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.ai-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ai-ctl .mut{color:var(--mut)}
+.aibox{border:1px dashed var(--ai);border-radius:8px;padding:8px 10px;margin-bottom:10px;background:var(--ai-bg)}
+.aibox .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.aibox h3{margin:0;font-size:13px;color:var(--ai);flex:1;min-width:180px}
+.aibox .item{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;border-top:1px solid var(--bd)}
+.aibox .tx{flex:1;min-width:200px;cursor:pointer;font-family:Georgia,"Times New Roman",serif;font-size:15px}
+.aibox .ctx{color:var(--mut)}
+.aibox del{color:var(--bad);text-decoration-thickness:1.5px}
+.aibox ins{color:var(--ok);text-decoration:none;font-weight:700}
+.aibox .conf{color:var(--mut);font-size:12px}
+.aibox .note{margin:6px 0 0;color:var(--mut);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:14px;padding:2px 4px 2px 10px;background:var(--field)}
+.chip b{font-weight:650}
+.block{border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;background:var(--field)}
+.block .top{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.block .top .spacer{flex:1}
+.block select{background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:2px 4px}
+.block textarea{display:block;width:100%;border:0;background:transparent;padding:8px 10px;resize:none;font:16px/1.55 Georgia,"Times New Roman",serif;min-height:42px}
+.block textarea:focus{outline:2px solid var(--ac);outline-offset:-2px;border-radius:0 0 8px 8px}
+.block.title textarea{font-weight:700;font-size:18px}
+.block.verse textarea{font-style:italic}
+.block.note textarea{font-size:14px;color:var(--mut)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+details{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-top:14px;background:var(--field)}
+details summary{cursor:pointer;font-weight:600}
+details .line{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+details input[type=text]{flex:1;min-width:140px;border:1px solid var(--bd);border-radius:6px;padding:4px 8px;background:var(--panel)}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:80vw}
+#toast.on{opacity:.95}
+.end-screen{padding:60px 24px;text-align:center;font-size:16px}
+@media (max-width:1000px){
+  body{display:block}
+  main{display:block}
+  nav{display:flex;overflow-x:auto;gap:4px;border-right:0;border-bottom:1px solid var(--bd)}
+  nav .item{width:auto;white-space:nowrap}
+  .col{overflow:visible;border-right:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><span id="book">OCR Review</span><span class="sub">compare the image with the text and fix what you need</span></h1>
+  <label>Show:
+    <select id="filter" aria-label="Page filter">
+      <option value="flagged">Flagged pages</option>
+      <option value="not_reviewed">Not reviewed</option>
+      <option value="all">All</option>
+    </select>
+  </label>
+  <div class="ai-ctl" id="ai-ctl" hidden>
+    <label>AI suggestions:
+      <select id="ai-scope" aria-label="Scope of the AI suggestions">
+        <option value="page">this page</option>
+        <option value="flagged">flagged pages</option>
+        <option value="all">all pages</option>
+      </select>
+    </label>
+    <button id="ai-run" class="small">Suggest</button>
+    <button id="ai-stop" class="small" hidden>Stop</button>
+    <span id="ai-status" class="mut" aria-live="polite"></span>
+  </div>
+  <div class="prog"><span id="prog-txt"></span><progress id="prog" max="1" value="0"></progress></div>
+  <button id="finish" class="primary">Finish review</button>
+</header>
+<main id="main">
+  <nav id="list" aria-label="Pages"></nav>
+  <section class="col image" id="panel-img">
+    <div class="bar">
+      <button id="zoom-out" class="small" aria-label="Zoom out">−</button>
+      <span id="zoom-txt" class="mut">100%</span>
+      <button id="zoom-in" class="small" aria-label="Zoom in">+</button>
+      <label class="mut"><input type="checkbox" id="show-boxes" checked> mark doubtful words</label>
+    </div>
+    <div class="sheet" id="sheet"><img id="img" alt="Scanned page image"><div id="boxes"></div></div>
+  </section>
+  <section class="col text" id="panel-txt">
+    <div class="bar">
+      <button id="prev" class="small" aria-label="Previous page">←</button>
+      <strong id="page-title"></strong>
+      <button id="next" class="small" aria-label="Next page">→</button>
+      <span id="page-note" class="mut"></span>
+    </div>
+    <div class="content">
+      <p class="page-warning" id="reasons"></p>
+      <div class="aibox" id="ai-sug" hidden></div>
+      <div class="suggestions" id="sug"></div>
+      <div id="blocks"></div>
+      <div class="actions">
+        <button id="add-block">+ block</button>
+        <button id="save" class="primary">Save and next (Ctrl+Enter)</button>
+        <button id="mark">Just mark as reviewed</button>
+      </div>
+      <details id="global">
+        <summary>Find and replace in the whole book</summary>
+        <div class="line">
+          <input type="text" id="from" placeholder="Find (e.g.: Leuchttunn)" aria-label="Find">
+          <input type="text" id="to" placeholder="Replace with" aria-label="Replace with">
+        </div>
+        <div class="line">
+          <label><input type="checkbox" id="word" checked> whole word</label>
+          <label><input type="checkbox" id="case"> ignore case</label>
+          <button id="count" class="small">Count</button>
+          <button id="replace" class="small">Replace all</button>
+          <span id="sub-res" class="mut" aria-live="polite"></span>
+        </div>
+      </details>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+const $ = (s, r = document) => r.querySelector(s);
+const KINDS = {paragraph: "Paragraph", title: "Title", verse: "Verse", note: "Note", caption: "Caption", separator: "Separator"};
+
+function el(tag, props = {}, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const f of children.flat()) if (f != null) e.append(f.nodeType ? f : document.createTextNode(f));
+  return e;
+}
+
+async function api(path, body) {
+  const opt = {headers: {"X-Token": TOKEN}};
+  if (body !== undefined) {
+    opt.method = "POST";
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opt);
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r.json();
+}
+
+let tt;
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(tt);
+  tt = setTimeout(() => t.classList.remove("on"), 3200);
+}
+
+const S = {index: null, current: null, page: null, blocks: [], dirty: false, zoom: 1, filter: "flagged",
+           ai: null, aiSug: [], aiBusy: false};
+
+// ---------------------------------------------------------------- page list
+function filteredPages() {
+  const ps = S.index.pages;
+  if (S.filter === "flagged") return ps.filter(p => p.flagged || p.n === S.current);
+  if (S.filter === "not_reviewed") return ps.filter(p => !p.reviewed || p.n === S.current);
+  return ps;
+}
+
+function drawList() {
+  const nav = $("#list");
+  const scroll = nav.scrollTop;
+  nav.replaceChildren();
+  for (const p of filteredPages()) {
+    const badges = el("span", {class: "badges"});
+    if (p.flagged) badges.append(el("span", {class: "badge flag", title: p.reasons.join("; ") || "flagged", text: "!"}));
+    if (p.ai) badges.append(el("span", {class: "badge ai", title: `${p.ai} AI suggestion(s) to check`, text: `AI ${p.ai}`}));
+    if (p.edited) badges.append(el("span", {class: "badge edited", title: "edited", text: "✎"}));
+    if (p.reviewed) badges.append(el("span", {class: "badge reviewed", title: "reviewed", text: "✓"}));
+    const b = el("button", {class: "item", "data-n": p.n, onclick: () => open_(p.n)}, el("span", {text: `p. ${p.n}`}), badges);
+    if (p.n === S.current) b.setAttribute("aria-current", "true");
+    nav.append(b);
+  }
+  const total = S.index.pages.length;
+  const done = S.index.pages.filter(p => p.reviewed).length;
+  const target = S.index.pages.filter(p => p.flagged);
+  const doneTarget = target.filter(p => p.reviewed).length;
+  $("#prog").max = Math.max(1, target.length || total);
+  $("#prog").value = target.length ? doneTarget : done;
+  $("#prog-txt").textContent = target.length ? `${doneTarget} of ${target.length} flagged reviewed` : `${done} of ${total} reviewed`;
+  const active = nav.querySelector("[aria-current=true]");
+  if (S.scrollList !== false && active && active.scrollIntoView) active.scrollIntoView({block: "nearest"});
+  else nav.scrollTop = scroll;
+}
+
+// ---------------------------------------------------------------- page
+async function open_(n) {
+  if (S.dirty) await save_(null);
+  const data = await api(`/api/page/${n}`);
+  S.current = n; S.page = data; S.blocks = data.blocks.map(b => ({...b})); S.dirty = false;
+  const p = S.index.pages.find(x => x.n === n);
+  $("#page-title").textContent = `Page ${n} of ${S.index.pages.length}`;
+  const sc = data.score || {};
+  $("#page-note").textContent = sc.conf != null ? `confidence ${Math.round(sc.conf)}% · score ${Math.round(sc.score)}` : "";
+  $("#reasons").textContent = p && p.reasons.length ? "Note: " + p.reasons.join("; ") + "." : "";
+  $("#img").src = `/img/${n}?t=${encodeURIComponent(TOKEN)}`;
+  $("#panel-img").scrollTop = 0; $("#panel-txt").scrollTop = 0;
+  S.aiSug = data.ai || [];
+  drawBoxes(); drawSuggestions(); drawBlocks(); drawAI(); drawList();
+}
+
+function drawBoxes() {
+  const c = $("#boxes");
+  c.replaceChildren();
+  for (const [x, y, w, h, conf, txt] of S.page.boxes) {
+    const d = el("div", {class: "box" + (conf < 45 ? " c0" : ""), title: `“${txt}” — confidence ${Math.round(conf)}%`,
+      onclick: () => goToWord(txt)});
+    d.style.cssText = `left:${x * 100}%;top:${y * 100}%;width:${w * 100}%;height:${h * 100}%`;
+    c.append(d);
+  }
+  $("#sheet").classList.toggle("no-boxes", !$("#show-boxes").checked);
+}
+
+function drawSuggestions() {
+  const s = $("#sug");
+  s.replaceChildren();
+  for (const sg of S.page.suggestions) {
+    s.append(el("span", {class: "chip", title: `“${sg.to}” appears ${sg.freq_to}× in the book; “${sg.from}” only ${sg.n}×`},
+      el("span", {}, "suggestion: ", el("b", {text: sg.from}), " → ", el("b", {text: sg.to})),
+      el("button", {class: "small", onclick: () => replaceOnPage(sg.from, sg.to)}, "here"),
+      el("button", {class: "small", onclick: () => replaceInBook(sg.from, sg.to)}, "whole book")));
+  }
+}
+
+function autoHeight(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; }
+
+function drawBlocks() {
+  const box = $("#blocks");
+  box.replaceChildren();
+  S.blocks.forEach((b, i) => {
+    const ta = el("textarea", {"aria-label": `Text of block ${i + 1}`, spellcheck: "false"});
+    ta.value = b.text;
+    ta.addEventListener("input", () => { b.text = ta.value; S.dirty = true; autoHeight(ta); });
+    const kind = el("select", {"aria-label": "Block kind", onchange: e => { b.kind = e.target.value; S.dirty = true; drawBlocks(); }});
+    for (const [v, r] of Object.entries(KINDS)) { const o = el("option", {value: v, text: r}); if (v === b.kind) o.selected = true; kind.append(o); }
+    const top = el("div", {class: "top"}, kind);
+    if (b.kind === "title") {
+      const nv = el("select", {"aria-label": "Title level", onchange: e => { b.level = +e.target.value; S.dirty = true; }});
+      for (let k = 1; k <= 4; k++) { const o = el("option", {value: k, text: `level ${k}`}); if (k === (b.level || 1)) o.selected = true; nv.append(o); }
+      top.append(nv);
+    }
+    top.append(el("span", {class: "spacer"}));
+    if (i > 0) top.append(el("button", {class: "small", title: "Merge with the previous block", onclick: () => merge(i)}, "↑ merge"));
+    top.append(el("button", {class: "small", title: "Split at the cursor", onclick: () => split(i, ta)}, "✂ split"));
+    top.append(el("button", {class: "small", title: "Discard this block", onclick: () => discard(i)}, "✕"));
+    box.append(el("div", {class: `block ${b.kind}`}, top, ta));
+    requestAnimationFrame(() => autoHeight(ta));
+  });
+  if (!S.blocks.length) box.append(el("p", {class: "mut", text: "No text on this page (use “+ block” if something is missing)."}));
+}
+
+function merge(i) {
+  const a = S.blocks[i - 1], b = S.blocks[i];
+  a.text = a.text.replace(/\s+$/, "") + (a.kind === "verse" ? "\n" : " ") + b.text.replace(/^\s+/, "");
+  S.blocks.splice(i, 1); S.dirty = true; drawBlocks();
+}
+function split(i, ta) {
+  const pos = ta.selectionStart, t = ta.value;
+  const a = t.slice(0, pos).trim(), b = t.slice(pos).trim();
+  if (!a || !b) { toast("Put the cursor where the block should be split."); return; }
+  S.blocks[i].text = a;
+  S.blocks.splice(i + 1, 0, {...S.blocks[i], text: b});
+  S.dirty = true; drawBlocks();
+}
+function discard(i) {
+  S.blocks.splice(i, 1); S.dirty = true; drawBlocks();
+}
+$("#add-block").onclick = () => { S.blocks.push({kind: "paragraph", text: "", level: 1}); S.dirty = true; drawBlocks(); const t = document.querySelectorAll("#blocks textarea"); if (t.length) t[t.length - 1].focus(); };
+
+function goToWord(txt) {
+  const word = txt.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const tas = [...document.querySelectorAll("#blocks textarea")];
+  for (const ta of tas) {
+    const j = word ? ta.value.indexOf(word) : -1;
+    if (j >= 0) { ta.focus(); ta.setSelectionRange(j, j + word.length); ta.scrollIntoView({block: "center"}); return; }
+  }
+  toast("I couldn't find that word in the text (maybe it has already been fixed).");
+}
+
+function replaceOnPage(from, to) {
+  const rx = new RegExp("(?<![\\p{L}\\p{N}_])" + from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![\\p{L}\\p{N}_])", "gu");
+  let k = 0;
+  for (const b of S.blocks) b.text = b.text.replace(rx, () => { k++; return to; });
+  if (k) { S.dirty = true; drawBlocks(); toast(`${k} change(s) on this page.`); } else toast("Nothing to change on this page.");
+}
+
+async function replaceInBook(from, to, simulate) {
+  if (S.dirty) await save_(null);
+  const base = {from, to, whole_word: true, ignore_case: false};
+  const prev = await api("/api/replace", {...base, apply: false});
+  if (!prev.occurrences) { toast("No occurrence in the book."); return; }
+  if (!confirm(`Replace “${from}” with “${to}” in ${prev.occurrences} place(s), on ${prev.pages} page(s)?`)) return;
+  await api("/api/replace", {...base, apply: true});
+  toast(`${prev.occurrences} change(s) made.`);
+  await reloadIndex(); await open_(S.current);
+}
+
+
+// ---------------------------------------------------------------- AI suggestions (they only suggest; you decide)
+const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function errMsg(e) { try { return JSON.parse(e.message).error || e.message; } catch { return e.message; } }
+
+function common(text, ctx, suffix) {
+  let k = 0;
+  if (suffix) while (k < ctx.length && k < text.length && text[text.length - 1 - k] === ctx[ctx.length - 1 - k]) k++;
+  else while (k < ctx.length && k < text.length && text[k] === ctx[k]) k++;
+  return k;
+}
+
+// where, in the text currently on screen (with edits not yet saved), the suggestion applies; null = no longer applies
+function locateAI(sg) {
+  const start = /^[\p{L}\p{N}]/u.test(sg.from) ? "(?<![\\p{L}\\p{N}])" : "";
+  const end = /[\p{L}\p{N}]$/u.test(sg.from) ? "(?![\\p{L}\\p{N}])" : "";
+  const rx = new RegExp(start + esc(sg.from) + end, "gu");
+  let best = null;
+  S.blocks.forEach((b, i) => {
+    for (const m of b.text.matchAll(rx)) {
+      const a = b.text.slice(0, m.index), d = b.text.slice(m.index + sg.from.length);
+      const pt = common(a, sg.before, true) + common(d, sg.after, false) + (i === sg.block ? 0.5 : 0);
+      if (!best || pt > best.pt) best = {i, start: m.index, end: m.index + sg.from.length, pt};
+    }
+  });
+  return best;
+}
+
+function drawAI() {
+  const box = $("#ai-sug");
+  box.replaceChildren();
+  const items = [];
+  for (const sg of S.aiSug) { const loc = locateAI(sg); if (loc) items.push({sg, loc}); }
+  if (!items.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const ids = items.map(x => x.sg);
+  box.append(el("div", {class: "head"},
+    el("h3", {text: `AI suggestions (${items.length}) — check each one; nothing changes without you accepting`}),
+    el("button", {class: "small", onclick: () => acceptAI(ids)}, "accept all"),
+    el("button", {class: "small", onclick: () => rejectAI(ids)}, "reject all")));
+  for (const {sg, loc} of items) {
+    const t = S.blocks[loc.i].text;
+    const before = t.slice(Math.max(0, loc.start - 22), loc.start), after = t.slice(loc.end, loc.end + 22);
+    const tx = el("span", {class: "tx", title: "Click to see it in the text", onclick: () => goToAI(loc)},
+      el("span", {class: "ctx", text: (loc.start > 22 ? "…" : "") + before}),
+      sg.from ? el("del", {text: sg.from}) : "", sg.from && sg.to ? " → " : "",
+      sg.to ? el("ins", {text: sg.to}) : el("em", {class: "conf", text: " (delete)"}),
+      el("span", {class: "ctx", text: after + (t.length > loc.end + 22 ? "…" : "")}));
+    const item = el("div", {class: "item"}, tx);
+    if (sg.conf != null) item.append(el("span", {class: "conf", title: "OCR confidence for that word", text: `OCR ${sg.conf}%`}));
+    item.append(el("button", {class: "small", onclick: () => acceptAI([sg])}, "accept"),
+                el("button", {class: "small", onclick: () => rejectAI([sg])}, "reject"));
+    box.append(item);
+  }
+  box.append(el("p", {class: "note", text: "The model can be wrong: it does not know the book. Checking against the page image is what matters."}));
+}
+
+function goToAI(loc) {
+  const ta = document.querySelectorAll("#blocks textarea")[loc.i];
+  if (ta) { ta.focus(); ta.setSelectionRange(loc.start, loc.end); ta.scrollIntoView({block: "center"}); }
+}
+
+async function acceptAI(list) {
+  const done = [];
+  for (const sg of list) {
+    const loc = locateAI(sg);   // again for each one: the previous changes shift the positions
+    if (!loc) continue;
+    const b = S.blocks[loc.i];
+    b.text = b.text.slice(0, loc.start) + sg.to + b.text.slice(loc.end);
+    done.push(sg.id);
+  }
+  if (!done.length) return;
+  S.dirty = true;
+  S.aiSug = S.aiSug.filter(x => !done.includes(x.id));
+  drawBlocks(); drawAI();
+  try { await api("/api/ai/accept", {ids: done}); } catch (e) { toast("Error: " + errMsg(e)); }
+  toast(`${done.length} change(s) applied — save the page (Ctrl+Enter) when you finish.`);
+}
+
+async function rejectAI(list) {
+  const ids = list.map(x => x.id);
+  S.aiSug = S.aiSug.filter(x => !ids.includes(x.id));
+  drawAI();
+  try { await api("/api/ai/reject", {ids}); await updateAIBadge(); } catch (e) { toast("Error: " + errMsg(e)); }
+}
+
+async function updateAIBadge() {
+  const before = S.index.pages.map(p => p.ai).join();
+  const fresh = await api("/api/index");
+  S.index.pages.forEach((p, i) => { const q = fresh.pages.find(x => x.n === p.n); if (q) p.ai = q.ai; });
+  if (S.index.pages.map(p => p.ai).join() !== before) { S.scrollList = false; drawList(); S.scrollList = true; }
+}
+
+function updateAIUI() {
+  const ai = S.ai, t = ai.work || {};
+  const btn = $("#ai-run");
+  btn.disabled = !ai.available || !!t.active || S.aiBusy;
+  btn.title = ai.available ? `Model: ${ai.model}${ai.warning ? " — " + ai.warning : ""}` : (ai.reason || "unavailable");
+  $("#ai-stop").hidden = !t.active;
+  const st = $("#ai-status");
+  st.title = ai.warning || ai.reason || "";
+  if (t.active) st.textContent = `AI ${t.done}/${t.total}${t.current ? ` (p. ${t.current})` : ""} · ${t.suggestions} suggestion(s)`;
+  else if (S.aiBusy) st.textContent = "AI thinking… (takes a few seconds)";
+  else if (!ai.available) st.textContent = "unavailable — hover for details";
+  else if (ai.warning) st.textContent = "⚠ translation model";
+  else st.textContent = t.error ? "error: " + t.error : "";
+}
+
+let pollAI = null;
+function trackAI() {
+  if (pollAI) return;
+  pollAI = setInterval(async () => {
+    try {
+      S.ai = await api("/api/ai");
+      updateAIUI();
+      if (S.current != null) {
+        const r = await api(`/api/ai/page/${S.current}`);
+        if (r.suggestions.map(x => x.id).join() !== S.aiSug.map(x => x.id).join()) { S.aiSug = r.suggestions; drawAI(); }
+      }
+      await updateAIBadge();
+      if (!S.ai.work.active) {
+        clearInterval(pollAI); pollAI = null;
+        const t = S.ai.work;
+        toast(t.error ? `AI stopped: ${t.error}` : t.stop ? `AI stopped: ${t.suggestions} suggestion(s) on ${t.done} page(s).` : `AI finished: ${t.suggestions} suggestion(s) on ${t.done} page(s).`);
+      }
+    } catch (e) { clearInterval(pollAI); pollAI = null; toast("AI: " + errMsg(e)); }
+  }, 2000);
+}
+
+$("#ai-run").onclick = async () => {
+  const scope = $("#ai-scope").value;
+  try {
+    if (S.dirty) await save_(null);
+    if (scope === "page") {
+      const n = S.current;
+      S.aiBusy = true; updateAIUI();
+      const r = await api(`/api/ai/page/${n}`, {});
+      if (S.current === n) { S.aiSug = r.suggestions; drawAI(); }
+      toast(r.suggestions.length ? `${r.suggestions.length} AI suggestion(s) for page ${n}.` : `The AI found nothing to fix on page ${n}.`);
+      await updateAIBadge();
+    } else {
+      const r = await api("/api/ai/batch", {scope});
+      if (r.nothing) toast("No pending page: the remaining ones already have suggestions or were reviewed.");
+      else { S.ai.work = r; updateAIUI(); trackAI(); }
+    }
+  } catch (e) { toast("AI: " + errMsg(e)); }
+  finally { S.aiBusy = false; try { S.ai = await api("/api/ai"); } catch {} updateAIUI(); }
+};
+$("#ai-stop").onclick = async () => { try { await api("/api/ai/stop", {}); toast("Stopping after the current page."); } catch (e) { toast("Error: " + errMsg(e)); } };
+
+async function startAI() {
+  if (!S.index.ai) return;
+  $("#ai-ctl").hidden = false;
+  S.ai = {available: false, reason: "checking Ollama…", work: {active: false}};
+  updateAIUI();
+  try { S.ai = await api("/api/ai"); } catch (e) { S.ai = {available: false, reason: errMsg(e), work: {active: false}}; }
+  updateAIUI();
+  if (S.ai.work.active) trackAI();
+}
+
+// ---------------------------------------------------------------- save and navigate
+async function save_(reviewed) {
+  if (S.current == null) return;
+  const r = await api(`/api/page/${S.current}`, {blocks: S.blocks.filter(b => b.text.trim()), reviewed});
+  S.dirty = false;
+  const i = S.index.pages.findIndex(p => p.n === S.current);
+  if (i >= 0 && r.index) S.index.pages[i] = r.index;
+}
+
+async function nextInList() {
+  const ps = filteredPages(), i = ps.findIndex(p => p.n === S.current);
+  const after = ps.slice(i + 1).find(p => !p.reviewed) || ps.slice(i + 1)[0];
+  return after ? after.n : null;
+}
+
+async function saveAndNext() {
+  await save_(true);
+  const nxt = await nextInList();
+  if (nxt != null) await open_(nxt);
+  else { drawList(); toast("End of the list. Click “Finish review” when you are done."); }
+}
+
+async function move(delta) {
+  const ps = filteredPages(), i = ps.findIndex(p => p.n === S.current), target = ps[i + delta];
+  if (target) await open_(target.n);
+}
+
+async function reloadIndex() { S.index = await api("/api/index"); }
+
+$("#save").onclick = () => saveAndNext().catch(e => toast("Error while saving: " + e.message));
+$("#mark").onclick = async () => { try { await save_(true); drawList(); toast("Page marked as reviewed."); } catch (e) { toast("Error: " + e.message); } };
+$("#prev").onclick = () => move(-1);
+$("#next").onclick = () => move(1);
+$("#filter").onchange = e => { S.filter = e.target.value; drawList(); };
+$("#show-boxes").onchange = () => $("#sheet").classList.toggle("no-boxes", !$("#show-boxes").checked);
+function zoom(f) { S.zoom = Math.min(3, Math.max(0.5, S.zoom * f)); $("#sheet").style.width = `calc(${S.zoom * 100}% - 24px)`; $("#zoom-txt").textContent = Math.round(S.zoom * 100) + "%"; }
+$("#zoom-in").onclick = () => zoom(1.2);
+$("#zoom-out").onclick = () => zoom(1 / 1.2);
+
+$("#count").onclick = async () => {
+  const r = await api("/api/replace", {from: $("#from").value, to: $("#to").value, whole_word: $("#word").checked, ignore_case: $("#case").checked, apply: false});
+  $("#sub-res").textContent = `${r.occurrences} occurrence(s) on ${r.pages} page(s)`;
+};
+$("#replace").onclick = async () => {
+  const from = $("#from").value, to = $("#to").value;
+  if (!from) { toast("Type what to find."); return; }
+  if (S.dirty) await save_(null);
+  const base = {from, to, whole_word: $("#word").checked, ignore_case: $("#case").checked};
+  const prev = await api("/api/replace", {...base, apply: false});
+  if (!prev.occurrences) { $("#sub-res").textContent = "no occurrence"; return; }
+  if (!confirm(`Replace in ${prev.occurrences} place(s), on ${prev.pages} page(s)?`)) return;
+  await api("/api/replace", {...base, apply: true});
+  $("#sub-res").textContent = `${prev.occurrences} change(s) made`;
+  await reloadIndex(); await open_(S.current);
+};
+
+$("#finish").onclick = async () => {
+  try {
+    if (S.dirty) await save_(null);
+    await reloadIndex();
+    const pend = S.index.pages.filter(p => p.flagged && !p.reviewed).length;
+    if (pend && !confirm(`There are still ${pend} flagged page(s) not reviewed. Finish anyway?`)) return;
+    const aiPend = S.index.pages.reduce((a, p) => a + (p.ai || 0), 0);
+    if (aiPend && !confirm(`There are ${aiPend} AI suggestion(s) you have not accepted or rejected. They will NOT be applied. Finish anyway?`)) return;
+    if (S.ai && S.ai.work && S.ai.work.active && !confirm("The AI is still working and will be interrupted. Finish anyway?")) return;
+    await api("/api/finish", {});
+    document.body.replaceChildren(el("div", {class: "end-screen"}, el("h1", {text: "Review finished"}), el("p", {text: "You can close this tab and go back to the terminal: the program continues on its own."})));
+  } catch (e) { toast("Error: " + e.message); }
+};
+
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); $("#save").click(); }
+  else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); move(1); }
+  else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); move(-1); }
+});
+window.addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+(async function start() {
+  try {
+    await reloadIndex();
+    $("#book").textContent = "OCR Review — " + S.index.title;
+    document.title = "OCR Review — " + S.index.title;
+    S.filter = S.index.pages.some(p => p.flagged) ? S.index.filter : "all";
+    if (S.filter === "none") S.filter = "all";
+    $("#filter").value = S.filter;
+    const ps = filteredPages();
+    startAI();
+    if (!ps.length) { drawList(); return; }
+    await open_((ps.find(p => !p.reviewed) || ps[0]).n);
+  } catch (e) { toast("Could not load: " + e.message); }
+})();
+</script>
+</body>
+</html>

@@ -1,12 +1,12 @@
-"""Configuração do projeto e tabela de idiomas."""
+"""Project configuration and the language table."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 
-# código ISO -> (nome em português, nome em inglês)
-IDIOMAS: dict[str, tuple[str, str]] = {
+# ISO code -> (name in Portuguese, name in English)
+LANGUAGES: dict[str, tuple[str, str]] = {
     "de": ("alemão", "German"),
     "en": ("inglês", "English"),
     "es": ("espanhol", "Spanish"),
@@ -35,84 +35,84 @@ IDIOMAS: dict[str, tuple[str, str]] = {
     "la": ("latim", "Latin"),
 }
 
-# códigos usados no prompt do TranslateGemma quando diferem do ISO simples
-_CODIGO_PROMPT = {"zh-cn": "zh-Hans", "zh-tw": "zh-Hant"}
+# codes used in the TranslateGemma prompt when they differ from the plain ISO code
+_PROMPT_CODE = {"zh-cn": "zh-Hans", "zh-tw": "zh-Hant"}
 
 
-def nome_idioma(codigo: str, lingua: str = "pt") -> str:
-    par = IDIOMAS.get(codigo.lower())
-    if not par:
-        return codigo
-    return par[0] if lingua == "pt" else par[1]
+def language_name(code: str, lang: str = "en") -> str:
+    pair = LANGUAGES.get(code.lower())
+    if not pair:
+        return code
+    return pair[0] if lang == "pt" else pair[1]
 
 
-def codigo_prompt(codigo: str) -> str:
-    return _CODIGO_PROMPT.get(codigo.lower(), codigo)
+def prompt_code(code: str) -> str:
+    return _PROMPT_CODE.get(code.lower(), code)
 
 
-def normalizar_codigo(texto: str) -> str | None:
-    """Aceita 'pt', 'PT', 'português', 'portugues', 'ingles'... e devolve o código."""
-    t = texto.strip().lower()
-    if t in IDIOMAS:
+def normalize_code(text: str) -> str | None:
+    """Accepts 'pt', 'PT', 'português', 'portugues', 'ingles'... and returns the ISO code."""
+    t = text.strip().lower()
+    if t in LANGUAGES:
         return t
-    sem_acento = (
+    unaccented = (
         t.replace("ê", "e").replace("é", "e").replace("ã", "a").replace("á", "a")
         .replace("ç", "c").replace("ô", "o").replace("í", "i")
     )
-    for cod, (pt, en) in IDIOMAS.items():
-        pt_sem = (
+    for code, (pt, en) in LANGUAGES.items():
+        pt_unaccented = (
             pt.replace("ê", "e").replace("é", "e").replace("ã", "a").replace("á", "a")
             .replace("ç", "c").replace("ô", "o").replace("í", "i")
         )
-        if sem_acento in (pt_sem, en.lower()):
-            return cod
+        if unaccented in (pt_unaccented, en.lower()):
+            return code
     return None
 
 
 @dataclass
 class Config:
-    arquivo_original: str = ""
-    titulo: str = ""
-    autor: str = ""
-    origem: str = ""
-    destino: str = "pt"
-    variante_destino: str = "português do Brasil"
-    modelo: str = "translategemma:12b"
-    modelo_analise: str = ""          # vazio = usa o mesmo modelo da tradução
+    original_file: str = ""
+    title: str = ""
+    author: str = ""
+    source: str = ""
+    target: str = "pt"
+    target_variant: str = "português do Brasil"
+    model: str = "translategemma:12b"
+    analysis_model: str = ""          # empty = use the same model as the translation
     ollama_url: str = "http://localhost:11434"
-    estilo_prompt: str = "auto"       # auto | translategemma | chat
-    palavras_por_pagina: int = 300
-    paginas_previa: int = 3
-    contexto_blocos: int = 2          # parágrafos anteriores enviados como contexto (0 = desliga)
-    max_caracteres_bloco: int = 3000  # parágrafos maiores são traduzidos por partes, em fronteiras de frase
-    max_tentativas: int = 3
-    temperatura: float = 0.2
+    prompt_style: str = "auto"        # auto | translategemma | chat
+    words_per_page: int = 300
+    preview_pages: int = 3
+    context_blocks: int = 2           # previous paragraphs sent as context (0 = disabled)
+    max_block_chars: int = 3000       # larger paragraphs are translated in parts, at sentence boundaries
+    max_attempts: int = 3
+    temperature: float = 0.2
     num_ctx: int = 8192
-    validar_idioma: bool = True
-    # OCR (livros escaneados)
-    ocr_idioma: str = ""              # idioma(s) do Tesseract, ex.: deu, frk, deu+eng (vazio = decidir na extração)
-    ocr_psm: int = 3                  # segmentação de página do Tesseract (3 = automática)
+    validate_language: bool = True
+    # OCR (scanned books)
+    ocr_language: str = ""            # Tesseract language(s), e.g. deu, frk, deu+eng (empty = decide during extraction)
+    ocr_psm: int = 3                  # Tesseract page segmentation mode (3 = automatic)
     ocr_dpi: int = 300
-    ocr_processos: int = 0            # 0 = automático (núcleos - 1, no máximo 8)
-    ocr_duplas: str = "auto"          # auto | sim | nao: imagens com duas páginas lado a lado
-    ocr_duplas_aplicado: str = ""     # o que foi decidido na última leitura (sim | nao); vazio = ainda não decidido
-    ocr_usar_camada: bool = False     # PDF com texto embutido: usar essa camada em vez de refazer o OCR
-    ocr_limiar_palavra: int = 70      # confiança abaixo disso = palavra duvidosa
-    ocr_limiar_pagina: int = 85       # pontuação abaixo disso = página sinalizada para revisão
-    modelo_ocr: str = ""              # modelo que sugere correções de OCR na revisão (vazio = um modelo geral instalado)
-    formatos: list = field(default_factory=lambda: ["epub", "docx", "md", "html"])
+    ocr_processes: int = 0            # 0 = automatic (cores - 1, at most 8)
+    ocr_double: str = "auto"          # auto | yes | no: images with two pages side by side
+    ocr_double_applied: str = ""      # what was decided on the last read (yes | no); empty = not decided yet
+    ocr_use_layer: bool = False       # PDF with embedded text: use that layer instead of redoing the OCR
+    ocr_word_threshold: int = 70      # confidence below this = doubtful word
+    ocr_page_threshold: int = 85      # score below this = page flagged for review
+    ocr_model: str = ""               # model that suggests OCR fixes during review (empty = an installed general model)
+    formats: list = field(default_factory=lambda: ["epub", "docx", "md", "html"])
 
     @property
-    def modelo_para_analise(self) -> str:
-        return self.modelo_analise or self.modelo
+    def model_for_analysis(self) -> str:
+        return self.analysis_model or self.model
 
     @classmethod
-    def carregar(cls, caminho: Path) -> "Config":
-        dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
-        validos = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in dados.items() if k in validos})
+    def load(cls, path: Path) -> "Config":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        valid = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in valid})
 
-    def salvar(self, caminho: Path) -> None:
-        Path(caminho).write_text(
+    def save(self, path: Path) -> None:
+        Path(path).write_text(
             json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8"
         )

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Pharos — tradutor de livros com IA local (Ollama).
+"""Pharos — book translator with a local AI (Ollama).
 
-Entrada: PDF (com texto ou escaneado), pasta de imagens de páginas, EPUB, TXT/MD e, com o Calibre instalado,
-         MOBI/AZW3/FB2/DOCX... Livros escaneados passam por OCR (Tesseract) e por uma tela de revisão.
-Saída:   pasta do projeto com texto extraído, traduções, relatório de revisão e EPUB/DOCX/MD/HTML.
+Input:  PDF (with text or scanned), a folder of page images, EPUB, TXT/MD and, with Calibre installed,
+        MOBI/AZW3/FB2/DOCX... Scanned books go through OCR (Tesseract) and a review screen.
+Output: the project folder with extracted text, translations, a review report and EPUB/DOCX/MD/HTML.
 
-Exemplos:
-    python pharos.py meu_livro.pdf
-    python pharos.py scan_do_livro.pdf --origem de          # OCR em alemão (testa letra gótica sozinho)
-    python pharos.py fotos_das_paginas/ --ocr-lang frk       # pasta de imagens, OCR em Fraktur
-    python pharos.py meu_livro.epub --destino en --modelo gemma3:12b
-    python pharos.py meu-livro/            # retoma um projeto interrompido
-    python pharos.py meu-livro/ --revisar-ocr   # reabre a revisão do OCR de um projeto já extraído
+Examples:
+    python pharos.py my_book.pdf
+    python pharos.py book_scan.pdf --source de          # OCR in German (tests gothic type on its own)
+    python pharos.py page_photos/ --ocr-lang frk          # a folder of images, OCR in Fraktur
+    python pharos.py my_book.epub --target en --model gemma3:12b
+    python pharos.py my-book/            # resumes an interrupted project
+    python pharos.py my-book/ --review-ocr   # reopens the OCR review of an already-extracted project
 """
 from __future__ import annotations
 
@@ -21,434 +21,434 @@ import sys
 from pathlib import Path
 
 from pharos import __version__
-from pharos.config import Config, IDIOMAS, nome_idioma, normalizar_codigo
-from pharos.deteccao import tipo_arquivo
-from pharos.exportar import FORMATOS, exportar_tudo
-from pharos.extratores import extrair
-from pharos.extratores.comum import ErroExtracao
-from pharos.glossario import carregar as carregar_glossario, garantir_arquivo
-from pharos.idioma import detectar_livro
-from pharos.modelo import Livro, livro_para_markdown
-from pharos.ollama import Ollama, OllamaErro
-from pharos.perfil import GENEROS, Perfil, sugerir_perfil
-from pharos.previa import ciclo_previa
-from pharos.projeto import Projeto
-from pharos.traducao import CacheTraducao, Correcoes, Tradutor, buscar_traducoes, relatorio_alertas
-from pharos.ui import Progresso, SaidaDoUsuario, UI
+from pharos.config import Config, LANGUAGES, language_name, normalize_code
+from pharos.detection import file_type
+from pharos.export import FORMATS, export_all
+from pharos.extractors import extract
+from pharos.extractors.common import ExtractionError
+from pharos.glossary import load as load_glossary, ensure_file
+from pharos.language import detect_book
+from pharos.model import Book, book_to_markdown
+from pharos.ollama import Ollama, OllamaError
+from pharos.profile import GENRES, Profile, suggest_profile
+from pharos.preview import preview_cycle
+from pharos.project import Project
+from pharos.translation import TranslationCache, Corrections, Translator, fetch_translations, alerts_report
+from pharos.ui import Progress, UserExit, UI
 
-NOMES_TIPO = {
-    "pdf": "PDF", "epub": "EPUB", "txt": "texto puro/Markdown", "imagens": "imagens de páginas (scan)",
-    "convertivel": "formato convertível (via Calibre)", "desconhecido": "desconhecido",
+TYPE_NAMES = {
+    "pdf": "PDF", "epub": "EPUB", "txt": "plain text/Markdown", "images": "page images (scan)",
+    "convertible": "convertible format (via Calibre)", "unknown": "unknown",
 }
-NOMES_TIPO_PDF = {
-    "texto": "livro com texto selecionável", "scan": "scan (páginas em imagem)",
-    "misto": "misto (parte texto, parte scan)", "vazio": "sem conteúdo aproveitável",
+PDF_TYPE_NAMES = {
+    "text": "book with selectable text", "scan": "scan (image pages)",
+    "mixed": "mixed (part text, part scan)", "empty": "no usable content",
 }
 
 
-def ler_args(argv=None) -> argparse.Namespace:
+def read_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="pharos",
-        description="Traduz livros (PDF, EPUB, TXT...) com um modelo local do Ollama, com prévia e ajuste de estilo.",
+        description="Translates books (PDF, EPUB, TXT...) with a local Ollama model, with a preview and style tuning.",
     )
-    p.add_argument("alvo", help="arquivo do livro, ou pasta de um projeto para retomar")
-    p.add_argument("--origem", help="idioma do livro (ex.: de, es, en); sem isso o programa detecta e confirma")
-    p.add_argument("--destino", help="idioma da tradução (ex.: pt, en); sem isso o programa pergunta")
-    p.add_argument("--modelo", help="modelo do Ollama (padrão: translategemma:12b)")
-    p.add_argument("--modelo-analise", help="modelo usado só para sugerir o perfil (padrão: o mesmo da tradução)")
-    p.add_argument("--ollama", help="URL do Ollama (padrão: http://localhost:11434)")
-    p.add_argument("--saida", help="pasta onde criar o projeto (padrão: pasta atual)")
-    p.add_argument("--formatos", help="formatos de saída separados por vírgula: epub,docx,md,html")
-    p.add_argument("--glossario", help="arquivo TSV: termo<TAB>tradução<TAB>nota")
-    p.add_argument("--genero", help=f"gênero da obra: {', '.join(GENEROS)}")
-    p.add_argument("--variante", help='variante do idioma de destino (padrão para pt: "português do Brasil")')
-    p.add_argument("--previa-paginas", type=int, help="páginas da prévia (padrão: 3)")
-    p.add_argument("--sem-contexto", action="store_true", help="não envia parágrafos anteriores como contexto")
-    p.add_argument("--sem-previa", action="store_true", help="pula a prévia e traduz direto")
-    p.add_argument("--sim", action="store_true", help="aceita as sugestões sem perguntar (útil em lote)")
-    p.add_argument("--exportar-apenas", action="store_true", help="não traduz mais nada; só reexporta o que há no cache")
-    p.add_argument("--extrair-apenas", action="store_true",
-                   help="só extrai o texto (inclui OCR e revisão) e para; não traduz nem precisa do Ollama")
-    ocr = p.add_argument_group("OCR (livros escaneados)")
-    ocr.add_argument("--ocr-lang", help="idioma(s)/modelo do Tesseract, ex.: deu, frk, deu_latf, deu+eng "
-                                        "(padrão: deduzido de --origem ou detectado; em alemão testa letra gótica)")
-    ocr.add_argument("--revisar", choices=["sinalizadas", "todas", "nenhuma"],
-                     help="revisão do OCR na tela: só páginas sinalizadas, todas ou nenhuma (padrão: pergunta)")
-    ocr.add_argument("--revisar-ocr", action="store_true",
-                     help="reabre a revisão do OCR de um projeto já extraído (retraduz só o que mudou)")
-    ocr.add_argument("--ocr-forcar", action="store_true", help="refaz o OCR mesmo havendo resultado salvo")
-    ocr.add_argument("--paginas-duplas", choices=["auto", "sim", "nao"],
-                     help="imagens com duas páginas lado a lado: separar? (padrão: auto)")
-    ocr.add_argument("--usar-camada-embutida", action="store_true",
-                     help="PDF escaneado que já tem texto embutido: usar esse texto em vez de refazer o OCR")
-    ocr.add_argument("--ocr-imagens", action="store_true",
-                     help="PDF de texto com algumas páginas só de imagem: ler essas páginas com OCR (padrão: ficam de fora)")
-    ocr.add_argument("--ocr-dpi", type=int, help="resolução de renderização do PDF para o OCR (padrão: 300)")
-    ocr.add_argument("--ocr-processos", type=int, help="páginas lidas em paralelo (padrão: automático)")
-    ocr.add_argument("--modelo-ocr", help="modelo do Ollama que SUGERE correções de OCR na tela de revisão "
-                                          "(padrão: um modelo geral instalado, como gemma3; o de tradução não é ideal)")
-    ocr.add_argument("--sugestoes-ia", choices=["sinalizadas", "todas"],
-                     help="já pede ao modelo sugestões de correção do OCR em segundo plano quando a revisão abre "
-                          "(sem isso, use o botão da tela; nada é aplicado sem você aceitar)")
-    ocr.add_argument("--sem-navegador", action="store_true",
-                     help="não abre o navegador na revisão; só mostra o endereço (útil por SSH)")
-    p.add_argument("--versao", action="version", version=f"%(prog)s {__version__}")
+    p.add_argument("path", help="the book file, or a project folder to resume")
+    p.add_argument("--source", help="book language (e.g.: de, es, en); without it the program detects and confirms")
+    p.add_argument("--target", help="translation language (e.g.: pt, en); without it the program asks")
+    p.add_argument("--model", help="Ollama model (default: translategemma:12b)")
+    p.add_argument("--analysis-model", help="model used only to suggest the profile (default: same as the translation)")
+    p.add_argument("--ollama", help="Ollama URL (default: http://localhost:11434)")
+    p.add_argument("--output", help="folder where the project is created (default: current folder)")
+    p.add_argument("--formats", help="output formats separated by commas: epub,docx,md,html")
+    p.add_argument("--glossary", help="TSV file: term<TAB>translation<TAB>note")
+    p.add_argument("--genre", help=f"genre of the work: {', '.join(GENRES)}")
+    p.add_argument("--variant", help='variant of the target language (default for pt: "português do Brasil")')
+    p.add_argument("--preview-pages", type=int, help="pages of the preview (default: 3)")
+    p.add_argument("--no-context", action="store_true", help="do not send previous paragraphs as context")
+    p.add_argument("--no-preview", action="store_true", help="skip the preview and translate directly")
+    p.add_argument("--yes", action="store_true", help="accept the suggestions without asking (useful in batch)")
+    p.add_argument("--export-only", action="store_true", help="translate nothing more; just re-export what is in the cache")
+    p.add_argument("--extract-only", action="store_true",
+                   help="only extract the text (includes OCR and review) and stop; no translation, no Ollama needed")
+    ocr = p.add_argument_group("OCR (scanned books)")
+    ocr.add_argument("--ocr-lang", help="Tesseract language(s)/model, e.g.: deu, frk, deu_latf, deu+eng "
+                                        "(default: derived from --source or detected; in German it tests gothic type)")
+    ocr.add_argument("--review", choices=["flagged", "all", "none"],
+                     help="OCR review on screen: only flagged pages, all or none (default: asks)")
+    ocr.add_argument("--review-ocr", action="store_true",
+                     help="reopens the OCR review of an already-extracted project (re-translates only what changed)")
+    ocr.add_argument("--ocr-force", action="store_true", help="redo the OCR even if there is a saved result")
+    ocr.add_argument("--double-pages", choices=["auto", "yes", "no"],
+                     help="images with two pages side by side: split them? (default: auto)")
+    ocr.add_argument("--use-embedded-layer", action="store_true",
+                     help="scanned PDF that already has embedded text: use that text instead of redoing the OCR")
+    ocr.add_argument("--ocr-images", action="store_true",
+                     help="text PDF with a few image-only pages: read those pages with OCR (default: left out)")
+    ocr.add_argument("--ocr-dpi", type=int, help="PDF render resolution for the OCR (default: 300)")
+    ocr.add_argument("--ocr-processes", type=int, help="pages read in parallel (default: automatic)")
+    ocr.add_argument("--ocr-model", help="Ollama model that SUGGESTS OCR fixes in the review screen "
+                                         "(default: an installed general model, like gemma3; the translation one is not ideal)")
+    ocr.add_argument("--ai-suggestions", choices=["flagged", "all"],
+                     help="already ask the model for OCR fix suggestions in the background when the review opens "
+                          "(without it, use the on-screen button; nothing is applied without you accepting)")
+    ocr.add_argument("--no-browser", action="store_true",
+                     help="do not open the browser in the review; just show the address (useful over SSH)")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p.parse_args(argv)
 
 
-# ----------------------------------------------------------------------------- etapas
+# ----------------------------------------------------------------------------- stages
 
-def etapa_extracao(proj: Projeto, cfg: Config, ui: UI, args) -> Livro:
-    if proj.estado()["etapas"]["extracao"] and proj.livro_path.exists():
-        return Livro.carregar(proj.livro_path)
+def stage_extraction(proj: Project, cfg: Config, ui: UI, args) -> Book:
+    if proj.state()["stages"]["extraction"] and proj.book_path.exists():
+        return Book.load(proj.book_path)
 
     original = proj.original
     if original is None:
-        raise ErroExtracao("Não encontrei o arquivo original na pasta do projeto.")
-    ui.titulo("1. Arquivo")
-    tipo = tipo_arquivo(original)
-    nome = original.name + ("/" if original.is_dir() else "")
-    ui.info(f"{nome} — formato detectado: {NOMES_TIPO[tipo]}")
-    if tipo == "desconhecido":
-        raise ErroExtracao("Formato não reconhecido. Use PDF, EPUB, TXT ou imagens de páginas "
-                           "(ou instale o Calibre para MOBI/AZW3/DOCX).")
+        raise ExtractionError("I couldn't find the original file in the project folder.")
+    ui.heading("1. File")
+    kind = file_type(original)
+    name = original.name + ("/" if original.is_dir() else "")
+    ui.info(f"{name} — detected format: {TYPE_NAMES[kind]}")
+    if kind == "unknown":
+        raise ExtractionError("Format not recognised. Use PDF, EPUB, TXT or page images "
+                              "(or install Calibre for MOBI/AZW3/DOCX).")
 
-    rota = None  # None = extração direta do texto; senão {"ocr": [índices] | None (todas), "texto": {páginas}}
-    if tipo == "imagens":
-        ui.info("Imagens de páginas: o texto sai por OCR, com uma etapa de revisão antes da tradução.")
-        rota = {"ocr": None, "texto": set()}
-    elif tipo == "pdf":
-        from pharos.extratores import pdf_texto
+    route = None  # None = direct text extraction; otherwise {"ocr": [indices] | None (all), "text": {pages}}
+    if kind == "images":
+        ui.info("Page images: the text comes out via OCR, with a review step before the translation.")
+        route = {"ocr": None, "text": set()}
+    elif kind == "pdf":
+        from pharos.extractors import pdf_text
 
-        ui.info("Analisando as páginas (texto selecionável ou scan)...")
-        a = pdf_texto.analisar(original)
-        ui.info(f"{a['resumo']}\nClassificação: {NOMES_TIPO_PDF[a['tipo']]}")
-        etapa_ocr = _modulo_ocr()
-        rota = etapa_ocr.rotear_pdf(original, cfg, ui, args)
-        if rota is None:
-            if a["tipo"] == "misto":
-                ui.aviso("Parte das páginas é só imagem; elas ficarão de fora (a lista vai para revisao/paginas_sem_texto.txt).")
-            if not ui.confirmar("Extrair o texto diretamente do PDF?", True):
-                if ui.confirmar("Usar o OCR (Tesseract) em vez disso?", False):
-                    rota = {"ocr": None, "texto": set()}
+        ui.info("Analysing the pages (selectable text or scan)...")
+        a = pdf_text.analyze(original)
+        ui.info(f"{a['summary']}\nClassification: {PDF_TYPE_NAMES[a['type']]}")
+        ocr_stage = _ocr_module()
+        route = ocr_stage.route_pdf(original, cfg, ui, args)
+        if route is None:
+            if a["type"] == "mixed":
+                ui.warn("Some pages are image only; they will be left out (the list goes to review/pages_without_text.txt).")
+            if not ui.confirm("Extract the text directly from the PDF?", True):
+                if ui.confirm("Use OCR (Tesseract) instead?", False):
+                    route = {"ocr": None, "text": set()}
                 else:
-                    raise SaidaDoUsuario("extração recusada")
+                    raise UserExit("extraction refused")
 
-    if rota is not None:
-        etapa_ocr = _modulo_ocr()
-        n_ocr = len(rota["ocr"]) if rota["ocr"] is not None else "todas as"
-        n_txt = len(rota["texto"])
-        ui.info(f"Plano: OCR em {n_ocr} página(s)" + (f" e leitura direta do texto em {n_txt}" if n_txt else "") + ".")
-        if not ui.confirmar("Prosseguir com o OCR?", True):
-            raise SaidaDoUsuario("extração recusada")
-        livro, rel = etapa_ocr.extrair_scan(proj, cfg, ui, args, original, rota["ocr"], rota["texto"])
+    if route is not None:
+        ocr_stage = _ocr_module()
+        n_ocr = len(route["ocr"]) if route["ocr"] is not None else "all"
+        n_text = len(route["text"])
+        ui.info(f"Plan: OCR on {n_ocr} page(s)" + (f" and direct text reading on {n_text}" if n_text else "") + ".")
+        if not ui.confirm("Proceed with the OCR?", True):
+            raise UserExit("extraction refused")
+        book, report = ocr_stage.extract_scan(proj, cfg, ui, args, original, route["ocr"], route["text"])
     else:
-        def progresso(i: int, total: int) -> None:
+        def progress(i: int, total: int) -> None:
             if total >= 20 and (i % max(1, total // 10) == 0 or i == total):
-                ui.info(f"  lendo... {i}/{total}")
+                ui.info(f"  reading... {i}/{total}")
 
-        ui.info("Extraindo o conteúdo...")
-        livro, rel = extrair(original, tipo, progresso)
-    if not livro.titulo:
-        livro.titulo = original.stem
-    palavras = livro.total_palavras()
-    if palavras < 200:
-        raise ErroExtracao(f"Só {palavras} palavras extraídas; o arquivo parece vazio ou protegido.")
-    livro.salvar(proj.livro_path)
-    proj.livro_md_path.write_text(livro_para_markdown(livro), encoding="utf-8")
-    if rel.get("paginas_sem_texto"):
-        (proj.pasta("revisao") / "paginas_sem_texto.txt").write_text(
-            "Páginas sem texto selecionável (scan), ignoradas na extração:\n"
-            + ", ".join(map(str, rel["paginas_sem_texto"])) + "\n", encoding="utf-8")
-    n_blocos = sum(len(c.blocos) for c in livro.capitulos)
-    ui.info(f"Extraído: {len(livro.capitulos)} capítulo(s), {n_blocos} trechos, {palavras} palavras.")
-    if rel.get("cabecalhos_removidos"):
-        ui.info("Cabeçalhos/rodapés removidos: " + "; ".join(rel["cabecalhos_removidos"][:4]))
-    if rel.get("paginas_sem_texto"):
-        ui.aviso(f"{len(rel['paginas_sem_texto'])} página(s) sem texto foram ignoradas.")
-    ui.info(f"Texto no idioma original: {proj.livro_md_path}")
-    if original.is_file():  # para um conjunto de imagens, vale o nome da pasta indicada na criação do projeto
-        cfg.arquivo_original = original.name
-    cfg.salvar(proj.config_path)
-    proj.marcar(extracao=True)
-    return livro
+        ui.info("Extracting the content...")
+        book, report = extract(original, kind, progress)
+    if not book.title:
+        book.title = original.stem
+    words = book.total_words()
+    if words < 200:
+        raise ExtractionError(f"Only {words} words extracted; the file seems empty or protected.")
+    book.save(proj.book_path)
+    proj.book_md_path.write_text(book_to_markdown(book), encoding="utf-8")
+    if report.get("pages_without_text"):
+        (proj.folder("review") / "pages_without_text.txt").write_text(
+            "Pages without selectable text (scan), ignored during extraction:\n"
+            + ", ".join(map(str, report["pages_without_text"])) + "\n", encoding="utf-8")
+    n_blocks = sum(len(c.blocks) for c in book.chapters)
+    ui.info(f"Extracted: {len(book.chapters)} chapter(s), {n_blocks} passages, {words} words.")
+    if report.get("headers_removed"):
+        ui.info("Headers/footers removed: " + "; ".join(report["headers_removed"][:4]))
+    if report.get("pages_without_text"):
+        ui.warn(f"{len(report['pages_without_text'])} page(s) without text were ignored.")
+    ui.info(f"Text in the original language: {proj.book_md_path}")
+    if original.is_file():  # for a set of images, the folder name given when the project was created applies
+        cfg.original_file = original.name
+    cfg.save(proj.config_path)
+    proj.mark(extraction=True)
+    return book
 
 
-def _modulo_ocr():
+def _ocr_module():
     try:
-        from pharos import etapa_ocr
-    except ImportError as e:  # Pillow, numpy ou pypdfium2 ausentes
-        raise ErroExtracao(f"O OCR precisa de bibliotecas que não estão instaladas ({e}).\n"
-                           "Rode: pip install pillow numpy pypdfium2") from e
-    return etapa_ocr
+        from pharos import ocr_stage
+    except ImportError as e:  # Pillow, numpy or pypdfium2 missing
+        raise ExtractionError(f"OCR needs libraries that are not installed ({e}).\n"
+                              "Run: pip install pillow numpy pypdfium2") from e
+    return ocr_stage
 
 
-def etapa_idioma(proj: Projeto, cfg: Config, livro: Livro, ui: UI, args) -> None:
-    if proj.estado()["etapas"]["idioma"] and cfg.origem:
+def stage_language(proj: Project, cfg: Config, book: Book, ui: UI, args) -> None:
+    if proj.state()["stages"]["language"] and cfg.source:
         return
-    ui.titulo("2. Idioma do livro")
-    if args.origem:
-        cod = normalizar_codigo(args.origem)
-        if not cod:
-            raise ErroExtracao(f"Idioma de origem não reconhecido: {args.origem}")
+    ui.heading("2. Book language")
+    if args.source:
+        code = normalize_code(args.source)
+        if not code:
+            raise ExtractionError(f"Source language not recognised: {args.source}")
     else:
-        dist = detectar_livro(livro)
-        padrao = livro.idioma if livro.idioma in IDIOMAS else ""
+        dist = detect_book(book)
+        default = book.language if book.language in LANGUAGES else ""
         if dist:
-            principal, parcela = dist[0]
-            outros = [f"{nome_idioma(l)} {round(p * 100)}%" for l, p in dist[1:] if p >= 0.08]
-            ui.info(f"Idioma detectado: {nome_idioma(principal)} ({round(parcela * 100)}% dos trechos amostrados)"
-                    + (f"; também aparecem: {', '.join(outros)}" if outros else ""))
-            if livro.idioma and livro.idioma != principal:
-                ui.aviso(f"Os metadados do arquivo indicam '{livro.idioma}'.")
-            padrao = principal
+            main, share = dist[0]
+            others = [f"{language_name(l)} {round(p * 100)}%" for l, p in dist[1:] if p >= 0.08]
+            ui.info(f"Detected language: {language_name(main)} ({round(share * 100)}% of the sampled passages)"
+                    + (f"; also present: {', '.join(others)}" if others else ""))
+            if book.language and book.language != main:
+                ui.warn(f"The file metadata indicates '{book.language}'.")
+            default = main
         else:
-            ui.aviso("Não consegui detectar o idioma automaticamente.")
+            ui.warn("I couldn't detect the language automatically.")
         while True:
-            resp = ui.perguntar("Idioma de origem (Enter confirma; ou digite outro código/nome)", padrao)
-            cod = normalizar_codigo(resp) if resp else None
-            if cod:
+            resp = ui.ask("Source language (Enter confirms; or type another code/name)", default)
+            code = normalize_code(resp) if resp else None
+            if code:
                 break
             if ui.auto:
-                raise ErroExtracao("Idioma de origem indefinido; use --origem.")
-            ui.aviso(f"Não reconheci '{resp}'. Códigos conhecidos: {', '.join(sorted(IDIOMAS))}")
-    cfg.origem = cod
-    livro.idioma = cod
-    livro.salvar(proj.livro_path)
-    cfg.salvar(proj.config_path)
-    proj.marcar(idioma=True)
+                raise ExtractionError("Source language undefined; use --source.")
+            ui.warn(f"I didn't recognise '{resp}'. Known codes: {', '.join(sorted(LANGUAGES))}")
+    cfg.source = code
+    book.language = code
+    book.save(proj.book_path)
+    cfg.save(proj.config_path)
+    proj.mark(language=True)
 
 
-def etapa_configuracao(proj: Projeto, cfg: Config, livro: Livro, ui: UI, args) -> None:
-    if proj.estado()["etapas"]["configurado"]:
+def stage_config(proj: Project, cfg: Config, book: Book, ui: UI, args) -> None:
+    if proj.state()["stages"]["configured"]:
         return
-    ui.titulo("3. Configuração")
-    cfg.titulo = ui.perguntar("Título do livro", livro.titulo)
-    cfg.autor = ui.perguntar("Autor (opcional)", livro.autor)
-    livro.titulo, livro.autor = cfg.titulo, cfg.autor
-    livro.salvar(proj.livro_path)
+    ui.heading("3. Configuration")
+    cfg.title = ui.ask("Book title", book.title)
+    cfg.author = ui.ask("Author (optional)", book.author)
+    book.title, book.author = cfg.title, cfg.author
+    book.save(proj.book_path)
 
-    if args.destino:
-        cod = normalizar_codigo(args.destino)
-        if not cod:
-            raise ErroExtracao(f"Idioma de destino não reconhecido: {args.destino}")
+    if args.target:
+        code = normalize_code(args.target)
+        if not code:
+            raise ExtractionError(f"Target language not recognised: {args.target}")
     else:
         while True:
-            resp = ui.perguntar("Traduzir para qual idioma? (pt = português, en = inglês, ou outro código)", "pt")
-            cod = normalizar_codigo(resp)
-            if cod and cod != cfg.origem:
+            resp = ui.ask("Translate into which language? (pt = Portuguese, en = English, or another code)", "pt")
+            code = normalize_code(resp)
+            if code and code != cfg.source:
                 break
             if ui.auto:
-                raise ErroExtracao("Idioma de destino inválido ou igual ao de origem.")
-            ui.aviso("Idioma não reconhecido ou igual ao do livro.")
-    cfg.destino = cod
-    cfg.variante_destino = args.variante if args.variante is not None else ("português do Brasil" if cod == "pt" else "")
+                raise ExtractionError("Target language invalid or equal to the source.")
+            ui.warn("Language not recognised or the same as the book's.")
+    cfg.target = code
+    cfg.target_variant = args.variant if args.variant is not None else ("português do Brasil" if code == "pt" else "")
 
-    if args.glossario:
-        origem = Path(args.glossario).expanduser()
-        if not origem.exists():
-            raise ErroExtracao(f"Glossário não encontrado: {origem}")
-        shutil.copy2(origem, proj.glossario_path)
+    if args.glossary:
+        src = Path(args.glossary).expanduser()
+        if not src.exists():
+            raise ExtractionError(f"Glossary not found: {src}")
+        shutil.copy2(src, proj.glossary_path)
     else:
-        caminho = "" if ui.auto else ui.perguntar("Glossário (.tsv: termo<TAB>tradução<TAB>nota) — caminho, ou Enter para começar vazio")
-        if caminho and Path(caminho).expanduser().exists():
-            shutil.copy2(Path(caminho).expanduser(), proj.glossario_path)
+        path = "" if ui.auto else ui.ask("Glossary (.tsv: term<TAB>translation<TAB>note) — path, or Enter to start empty")
+        if path and Path(path).expanduser().exists():
+            shutil.copy2(Path(path).expanduser(), proj.glossary_path)
         else:
-            garantir_arquivo(proj.glossario_path)
-    ui.info(f"Glossário: {len(carregar_glossario(proj.glossario_path))} termo(s) em {proj.glossario_path.name}")
+            ensure_file(proj.glossary_path)
+    ui.info(f"Glossary: {len(load_glossary(proj.glossary_path))} term(s) in {proj.glossary_path.name}")
 
-    if args.formatos:
-        brutos = args.formatos
+    if args.formats:
+        raw = args.formats
     else:
-        brutos = ui.perguntar(f"Formatos de saída ({', '.join(FORMATOS)})", ",".join(cfg.formatos))
-    formatos = [f.strip().lower() for f in brutos.split(",") if f.strip()]
-    invalidos = [f for f in formatos if f not in FORMATOS]
-    if invalidos or not formatos:
-        raise ErroExtracao(f"Formato(s) de saída inválido(s): {', '.join(invalidos) or '(vazio)'}")
-    cfg.formatos = formatos
-    cfg.salvar(proj.config_path)
-    proj.marcar(configurado=True)
+        raw = ui.ask(f"Output formats ({', '.join(FORMATS)})", ",".join(cfg.formats))
+    formats = [f.strip().lower() for f in raw.split(",") if f.strip()]
+    invalid = [f for f in formats if f not in FORMATS]
+    if invalid or not formats:
+        raise ExtractionError(f"Invalid output format(s): {', '.join(invalid) or '(empty)'}")
+    cfg.formats = formats
+    cfg.save(proj.config_path)
+    proj.mark(configured=True)
 
 
-def verificar_ollama(cfg: Config, ollama: Ollama) -> None:
+def check_ollama(cfg: Config, ollama: Ollama) -> None:
     try:
-        ollama.modelos()
-    except OllamaErro as e:
-        raise OllamaErro(f"{e}\nAbra o app do Ollama (ou rode `ollama serve`) e tente de novo.") from e
-    for nome in {cfg.modelo, cfg.modelo_para_analise}:
-        if not ollama.tem_modelo(nome):
-            raise OllamaErro(f"O modelo '{nome}' não está instalado no Ollama. Rode: ollama pull {nome}  (ou ./setup.sh)")
+        ollama.models()
+    except OllamaError as e:
+        raise OllamaError(f"{e}\nOpen the Ollama app (or run `ollama serve`) and try again.") from e
+    for name in {cfg.model, cfg.model_for_analysis}:
+        if not ollama.has_model(name):
+            raise OllamaError(f"The model '{name}' is not installed in Ollama. Run: ollama pull {name}  (or ./setup.sh)")
 
 
-def etapa_perfil(proj: Projeto, cfg: Config, livro: Livro, ui: UI, ollama: Ollama, args) -> Perfil:
-    if proj.estado()["etapas"]["perfil_aprovado"] and proj.perfil_path.exists():
-        return Perfil.carregar(proj.perfil_path)
+def stage_profile(proj: Project, cfg: Config, book: Book, ui: UI, ollama: Ollama, args) -> Profile:
+    if proj.state()["stages"]["profile_approved"] and proj.profile_path.exists():
+        return Profile.load(proj.profile_path)
 
-    ui.titulo("4. Perfil de tradução e prévia")
-    verificar_ollama(cfg, ollama)
+    ui.heading("4. Translation profile and preview")
+    check_ollama(cfg, ollama)
 
-    if proj.perfil_path.exists():
-        perfil = Perfil.carregar(proj.perfil_path)
-        ui.info("Usando o perfil já salvo neste projeto.")
+    if proj.profile_path.exists():
+        profile = Profile.load(proj.profile_path)
+        ui.info("Using the profile already saved in this project.")
     else:
-        perfil = None
-        if args.genero:
-            g = args.genero.strip().lower()
-            if g not in GENEROS:
-                raise ErroExtracao(f"Gênero desconhecido: {g}. Opções: {', '.join(GENEROS)}")
-            perfil = Perfil.padrao(g)
-        elif ui.auto or ui.confirmar("Quer que a IA sugira o perfil (gênero e tom) a partir de trechos do livro?", True):
-            ui.info("Analisando trechos do livro...")
-            perfil = sugerir_perfil(ollama, cfg, livro)
-            if perfil is None:
-                ui.aviso("A IA não devolveu uma sugestão utilizável; o perfil parte do gênero escolhido.")
-        if perfil is None:
-            perfil = Perfil.padrao("outro")
+        profile = None
+        if args.genre:
+            g = args.genre.strip().lower()
+            if g not in GENRES:
+                raise ExtractionError(f"Unknown genre: {g}. Options: {', '.join(GENRES)}")
+            profile = Profile.default(g)
+        elif ui.auto or ui.confirm("Would you like the AI to suggest the profile (genre and tone) from snippets of the book?", True):
+            ui.info("Analysing snippets of the book...")
+            profile = suggest_profile(ollama, cfg, book)
+            if profile is None:
+                ui.warn("The AI did not return a usable suggestion; the profile starts from the chosen genre.")
+        if profile is None:
+            profile = Profile.default("other")
 
-        ui.info(f"\nGênero: {perfil.genero} ({GENEROS[perfil.genero][0]})")
-        genero = ui.perguntar(f"Gênero ({', '.join(GENEROS)})", perfil.genero).lower()
-        if genero in GENEROS and genero != perfil.genero:
-            perfil = Perfil.padrao(genero, perfil.obra)
-        elif genero not in GENEROS:
-            ui.aviso(f"Gênero '{genero}' desconhecido; mantendo '{perfil.genero}'.")
-        padrao_obra = perfil.obra or f"{cfg.titulo}" + (f", de {cfg.autor}" if cfg.autor else "")
-        perfil.obra = ui.perguntar("Descreva a obra em uma linha (título, autor, época, tradição)", padrao_obra)
-        ui.info(f"Tom/registro pedido ao modelo: {perfil.registro}")
+        ui.info(f"\nGenre: {profile.genre} ({GENRES[profile.genre][0]})")
+        genre = ui.ask(f"Genre ({', '.join(GENRES)})", profile.genre).lower()
+        if genre in GENRES and genre != profile.genre:
+            profile = Profile.default(genre, profile.work)
+        elif genre not in GENRES:
+            ui.warn(f"Genre '{genre}' unknown; keeping '{profile.genre}'.")
+        default_work = profile.work or f"{cfg.title}" + (f", by {cfg.author}" if cfg.author else "")
+        profile.work = ui.ask("Describe the work in one line (title, author, period, tradition)", default_work)
+        ui.info(f"Tone/register asked of the model: {profile.register}")
 
-    perfil.salvar(proj.perfil_path)
-    if args.sem_previa:
-        ui.info("Prévia pulada (--sem-previa).")
+    profile.save(proj.profile_path)
+    if args.no_preview:
+        ui.info("Preview skipped (--no-preview).")
     else:
-        ciclo_previa(proj, cfg, perfil, ollama, livro, ui)
-    perfil.salvar(proj.perfil_path)
-    cfg.salvar(proj.config_path)
-    proj.marcar(perfil_aprovado=True)
-    return perfil
+        preview_cycle(proj, cfg, profile, ollama, book, ui)
+    profile.save(proj.profile_path)
+    cfg.save(proj.config_path)
+    proj.mark(profile_approved=True)
+    return profile
 
 
-def criar_tradutor(proj: Projeto, cfg: Config, perfil: Perfil, ollama: Ollama) -> Tradutor:
-    return Tradutor(cfg, perfil, proj.glossario_path, ollama, CacheTraducao(proj.cache_path), Correcoes(proj.correcoes_path))
+def make_translator(proj: Project, cfg: Config, profile: Profile, ollama: Ollama) -> Translator:
+    return Translator(cfg, profile, proj.glossary_path, ollama, TranslationCache(proj.cache_path), Corrections(proj.corrections_path))
 
 
-def etapa_traducao(tradutor: Tradutor, proj: Projeto, cfg: Config, livro: Livro, ui: UI, ollama: Ollama) -> None:
-    ui.titulo("5. Tradução do livro")
-    todos = list(livro.blocos())
-    prontos = sum(1 for b in todos if tradutor.resolver(b) is not None)
-    ui.info(f"{len(todos)} trechos: {prontos} já prontos, {len(todos) - prontos} para traduzir com {cfg.modelo}.")
-    if prontos < len(todos):
-        ui.info("A partir daqui roda sozinho. Ctrl+C interrompe; o mesmo comando retoma de onde parou.")
-    tradutor.traduzir_lista(todos, progresso=Progresso(ui))
-    ollama.descarregar(cfg.modelo)  # libera a memória (útil no Mac, onde GPU e RAM são compartilhadas)
-    proj.marcar(traducao_completa=True)
+def stage_translation(translator: Translator, proj: Project, cfg: Config, book: Book, ui: UI, ollama: Ollama) -> None:
+    ui.heading("5. Book translation")
+    all_ = list(book.blocks())
+    ready = sum(1 for b in all_ if translator.resolve(b) is not None)
+    ui.info(f"{len(all_)} passages: {ready} already done, {len(all_) - ready} to translate with {cfg.model}.")
+    if ready < len(all_):
+        ui.info("From here it runs on its own. Ctrl+C interrupts; the same command resumes where it stopped.")
+    translator.translate_list(all_, progress=Progress(ui))
+    ollama.unload(cfg.model)  # free the memory (useful on the Mac, where GPU and RAM are shared)
+    proj.mark(translation_complete=True)
 
 
-def etapa_exportar(tradutor: Tradutor, proj: Projeto, cfg: Config, livro: Livro, ui: UI) -> None:
-    ui.titulo("6. Exportação")
-    textos, resultados = buscar_traducoes(livro, tradutor)
-    pendentes = sum(1 for r in resultados.values() if "pendente" in r.alertas)
-    gerados = exportar_tudo(proj, cfg, livro, textos, resultados, cfg.formatos)
-    proj.relatorio_path.write_text(relatorio_alertas(livro, resultados), encoding="utf-8")
-    revisar = sum(1 for r in resultados.values() if "revisar" in r.alertas)
-    ui.info("Arquivos gerados:")
-    for g in gerados:
+def stage_export(translator: Translator, proj: Project, cfg: Config, book: Book, ui: UI) -> None:
+    ui.heading("6. Export")
+    texts, results = fetch_translations(book, translator)
+    pending = sum(1 for r in results.values() if "pending" in r.alerts)
+    generated = export_all(proj, cfg, book, texts, results, cfg.formats)
+    proj.report_path.write_text(alerts_report(book, results), encoding="utf-8")
+    review_ = sum(1 for r in results.values() if "review" in r.alerts)
+    ui.info("Generated files:")
+    for g in generated:
         ui.info(f"  {g}")
-    ui.info(f"Relatório de revisão: {proj.relatorio_path}")
-    if pendentes:
-        ui.aviso(f"{pendentes} trecho(s) ainda sem tradução (mantidos no original). Rode de novo para continuar.")
-    if revisar:
-        ui.aviso(f"{revisar} trecho(s) esgotaram as tentativas e merecem revisão humana (veja o relatório).")
-    proj.marcar(exportado=not pendentes)
+    ui.info(f"Review report: {proj.report_path}")
+    if pending:
+        ui.warn(f"{pending} passage(s) still untranslated (kept in the original). Run again to continue.")
+    if review_:
+        ui.warn(f"{review_} passage(s) exhausted the attempts and deserve a human review (see the report).")
+    proj.mark(exported=not pending)
 
 
-# ----------------------------------------------------------------------------- principal
+# ----------------------------------------------------------------------------- main
 
-def executar(args, ui: UI) -> int:
-    alvo = Path(args.alvo).expanduser()
-    if not alvo.exists():
-        ui.erro(f"Não encontrei: {alvo}")
+def run_(args, ui: UI) -> int:
+    path = Path(args.path).expanduser()
+    if not path.exists():
+        ui.error(f"I couldn't find: {path}")
         return 1
-    base = Path(args.saida).expanduser() if args.saida else Path.cwd()
+    base = Path(args.output).expanduser() if args.output else Path.cwd()
 
-    if alvo.is_dir() and Projeto.e_projeto(alvo):
-        proj = Projeto.abrir(alvo.resolve())
-        ui.info(f"Retomando o projeto em {proj.raiz}")
-    elif alvo.is_dir() and tipo_arquivo(alvo) != "imagens":
-        ui.erro(f"{alvo} não é uma pasta de projeto (falta config.json) nem uma pasta de imagens de páginas.")
+    if path.is_dir() and Project.is_project(path):
+        proj = Project.open(path.resolve())
+        ui.info(f"Resuming the project in {proj.root}")
+    elif path.is_dir() and file_type(path) != "images":
+        ui.error(f"{path} is not a project folder (missing config.json) nor a folder of page images.")
         return 1
     else:
-        proj = Projeto.localizar(alvo, base)
-        if proj and (ui.auto or ui.confirmar("Já existe um projeto para este livro. Retomar de onde parou?", True)):
-            ui.info(f"Retomando o projeto em {proj.raiz}")
+        proj = Project.locate(path, base)
+        if proj and (ui.auto or ui.confirm("A project already exists for this book. Resume where it stopped?", True)):
+            ui.info(f"Resuming the project in {proj.root}")
         else:
-            proj = Projeto.criar(alvo, base)
-            Config(arquivo_original=alvo.name).salvar(proj.config_path)
-            ui.info(f"Projeto criado em {proj.raiz}")
+            proj = Project.create(path, base)
+            Config(original_file=path.name).save(proj.config_path)
+            ui.info(f"Project created in {proj.root}")
 
-    cfg = Config.carregar(proj.config_path)
-    if args.modelo:
-        cfg.modelo = args.modelo
-    if args.modelo_analise:
-        cfg.modelo_analise = args.modelo_analise
+    cfg = Config.load(proj.config_path)
+    if args.model:
+        cfg.model = args.model
+    if args.analysis_model:
+        cfg.analysis_model = args.analysis_model
     if args.ollama:
         cfg.ollama_url = args.ollama
-    if args.modelo_ocr:
-        cfg.modelo_ocr = args.modelo_ocr
-    if args.previa_paginas:
-        cfg.paginas_previa = args.previa_paginas
-    if args.sem_contexto:
-        cfg.contexto_blocos = 0
-    if args.paginas_duplas:
-        cfg.ocr_duplas = args.paginas_duplas
-    tem_ocr = any(proj.ocr_dir.glob("p*.json"))
-    if args.revisar_ocr and not tem_ocr:
-        ui.erro("Este projeto não tem páginas lidas por OCR para revisar.")
+    if args.ocr_model:
+        cfg.ocr_model = args.ocr_model
+    if args.preview_pages:
+        cfg.preview_pages = args.preview_pages
+    if args.no_context:
+        cfg.context_blocks = 0
+    if args.double_pages:
+        cfg.ocr_double = args.double_pages
+    has_ocr = any(proj.ocr_dir.glob("p*.json"))
+    if args.review_ocr and not has_ocr:
+        ui.error("This project has no OCR-read pages to review.")
         return 1
-    if (args.revisar_ocr or args.ocr_forcar) and tem_ocr:
-        # refaz a montagem do livro a partir do OCR salvo (ou do OCR refeito); o cache de tradução é por conteúdo,
-        # então só o que mudou é retraduzido
-        proj.marcar(extracao=False, ocr_revisada=False, traducao_completa=False, exportado=False)
-        if args.revisar_ocr:
-            args.revisar = args.revisar or "todas"
-    cfg.salvar(proj.config_path)
+    if (args.review_ocr or args.ocr_force) and has_ocr:
+        # rebuilds the book from the saved OCR (or the redone OCR); the translation cache is by content,
+        # so only what changed is re-translated
+        proj.mark(extraction=False, ocr_reviewed=False, translation_complete=False, exported=False)
+        if args.review_ocr:
+            args.review = args.review or "all"
+    cfg.save(proj.config_path)
     ollama = Ollama(cfg.ollama_url)
 
-    livro = etapa_extracao(proj, cfg, ui, args)
-    etapa_idioma(proj, cfg, livro, ui, args)
+    book = stage_extraction(proj, cfg, ui, args)
+    stage_language(proj, cfg, book, ui, args)
 
-    if args.extrair_apenas:
-        ui.info(f"\nTexto extraído (idioma: {nome_idioma(cfg.origem)}). Nada foi traduzido (--extrair-apenas).")
-        ui.info(f"  {proj.livro_md_path}")
-        ui.info(f"  {proj.livro_path}")
-        ui.info("Para traduzir, rode o mesmo comando sem --extrair-apenas (o OCR não é refeito).")
+    if args.extract_only:
+        ui.info(f"\nText extracted (language: {language_name(cfg.source)}). Nothing was translated (--extract-only).")
+        ui.info(f"  {proj.book_md_path}")
+        ui.info(f"  {proj.book_path}")
+        ui.info("To translate, run the same command without --extract-only (the OCR is not redone).")
         return 0
 
-    etapa_configuracao(proj, cfg, livro, ui, args)
+    stage_config(proj, cfg, book, ui, args)
 
-    if args.exportar_apenas:
-        perfil = Perfil.carregar(proj.perfil_path) if proj.perfil_path.exists() else Perfil.padrao("outro")
-        tradutor = criar_tradutor(proj, cfg, perfil, ollama)
+    if args.export_only:
+        profile = Profile.load(proj.profile_path) if proj.profile_path.exists() else Profile.default("other")
+        translator = make_translator(proj, cfg, profile, ollama)
     else:
-        perfil = etapa_perfil(proj, cfg, livro, ui, ollama, args)
-        tradutor = criar_tradutor(proj, cfg, perfil, ollama)
-        etapa_traducao(tradutor, proj, cfg, livro, ui, ollama)
-    etapa_exportar(tradutor, proj, cfg, livro, ui)
-    ui.info(f"\nPronto. Tudo está em {proj.raiz}")
+        profile = stage_profile(proj, cfg, book, ui, ollama, args)
+        translator = make_translator(proj, cfg, profile, ollama)
+        stage_translation(translator, proj, cfg, book, ui, ollama)
+    stage_export(translator, proj, cfg, book, ui)
+    ui.info(f"\nDone. Everything is in {proj.root}")
     return 0
 
 
 def main(argv=None) -> int:
-    args = ler_args(argv)
-    ui = UI(auto=args.sim)
+    args = read_args(argv)
+    ui = UI(auto=args.yes)
     try:
-        return executar(args, ui)
-    except SaidaDoUsuario:
-        ui.info("\nSaindo. O projeto está salvo; rode o mesmo comando para retomar.")
+        return run_(args, ui)
+    except UserExit:
+        ui.info("\nExiting. The project is saved; run the same command to resume.")
         return 0
     except KeyboardInterrupt:
-        ui.info("\n\nInterrompido. O que já foi traduzido está salvo; rode o mesmo comando para continuar.")
+        ui.info("\n\nInterrupted. What has already been translated is saved; run the same command to continue.")
         return 130
-    except (ErroExtracao, OllamaErro) as e:
-        ui.erro(str(e))
+    except (ExtractionError, OllamaError) as e:
+        ui.error(str(e))
         return 1
 
 

@@ -1,207 +1,207 @@
 #!/usr/bin/env bash
 # =====================================================================================================
-#  setup.sh — verifica e prepara o ambiente do Pharos — tradutor de livros (macOS e Linux)
+#  setup.sh — checks and prepares the Pharos environment (macOS and Linux)
 #
-#  Faz, nesta ordem (cada passo só mexe no que falta, então pode rodar quantas vezes quiser):
-#    1. Sistema      SO, memória, espaço em disco, gerenciador de pacotes
-#    2. Python       3.10+ (instala pelo brew/apt/dnf/pacman, se você deixar) e o ambiente virtual .venv
-#    3. Bibliotecas  requirements.txt dentro do .venv, conferidas por importação
-#    4. OCR          Tesseract + idiomas (eng osd deu spa por) + letra gótica (frk, deu_latf)
-#    5. Ollama       instalado, no ar (local ou em outra máquina) e com os modelos gemma baixados
-#    6. Opcionais    Calibre (MOBI/AZW3/...), ferramentas de teste
-#    7. Conferência  usa o próprio programa para checar que tudo se enxerga, e cria o atalho ./pharos.sh
+#  Does this, in order (each step only touches what is missing, so you can run it as often as you like):
+#    1. System       OS, memory, disk space, package manager
+#    2. Python       3.10+ (installs via brew/apt/dnf/pacman, if you let it) and the .venv virtual environment
+#    3. Libraries    requirements.txt inside the .venv, checked by import
+#    4. OCR          Tesseract + languages (eng osd deu spa por) + gothic type (frk, deu_latf)
+#    5. Ollama       installed, up (local or on another machine) and with the gemma models downloaded
+#    6. Optional     Calibre (MOBI/AZW3/...), test tools
+#    7. Check        uses the program itself to confirm everything sees each other, and creates the ./pharos.sh shortcut
 #
-#  Nada que exige senha de administrador (sudo) roda sem a sua confirmação. Sem terminal interativo e
-#  sem -y, o script só verifica e mostra o comando para rodar à mão.
+#  Nothing that needs an administrator password (sudo) runs without your confirmation. With no interactive
+#  terminal and no -y, the script only checks and shows the command to run by hand.
 #
-#  Uso:  ./setup.sh [opções]      (veja ./setup.sh --ajuda)
-#  Compatível com o bash 3.2 que vem no macOS.
+#  Usage:  ./setup.sh [options]      (see ./setup.sh --help)
+#  Compatible with the bash 3.2 that ships with macOS.
 # =====================================================================================================
 set -u -o pipefail
 
-RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$RAIZ/.venv"
-CONF="$RAIZ/.setup.conf"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$ROOT/.venv"
+CONF="$ROOT/.setup.conf"
 PY_MIN_MAJOR=3
 PY_MIN_MINOR=10
 
-MODELO_TRAD="translategemma:12b"
-MODELO_GERAL="gemma3:12b"
-IDIOMAS_BASE="eng osd deu spa por"
-IDIOMAS_GOTICOS="frk deu_latf"
-IDIOMAS_EXTRA=""
+TRANS_MODEL="translategemma:12b"
+GENERAL_MODEL="gemma3:12b"
+BASE_LANGS="eng osd deu spa por"
+GOTHIC_LANGS="frk deu_latf"
+EXTRA_LANGS=""
 TESSDATA_URL_BASE="${TESSDATA_URL_BASE:-https://github.com/tesseract-ocr}"
-GB_POR_MODELO=9
+GB_PER_MODEL=9
 
-VERIFICAR=0; SIM=0; SEM_MODELOS=0; SEM_MODELO_GERAL=0; SEM_OCR=0; SEM_VENV=0; DEV=0; CALIBRE=0
-TESTAR=0; INSTALAR_OLLAMA=0; PYTHON_ARG=""; MODELO_TRAD_EXPLICITO=0; MODELO_GERAL_EXPLICITO=0
+CHECK=0; YES=0; NO_MODELS=0; NO_GENERAL_MODEL=0; NO_OCR=0; NO_VENV=0; DEV=0; CALIBRE=0
+TEST=0; INSTALL_OLLAMA=0; PYTHON_ARG=""; TRANS_MODEL_SET=0; GENERAL_MODEL_SET=0
 OLLAMA_URL_ARG=""
 
-FALHAS=0; AVISOS=0; RESUMO_FALHAS=""; RESUMO_AVISOS=""
-PM=""; SO="$(uname -s)"; ARQ="$(uname -m)"
-PY_ATALHO=0; PY=""; VPY=""; PYANY=""; TESS=""; TESSDATA_DIR=""; MODELOS_INST=""; OLLAMA_URL=""; OLLAMA_LOCAL=0
+FAILURES=0; WARNINGS=0; FAIL_SUMMARY=""; WARN_SUMMARY=""
+PM=""; OS_="$(uname -s)"; ARCH="$(uname -m)"
+PY_SHIM=0; PY=""; VPY=""; PYANY=""; TESS=""; TESSDATA_DIR=""; INSTALLED_MODELS=""; OLLAMA_URL=""; OLLAMA_LOCAL=0
 LOG="$(mktemp "${TMPDIR:-/tmp}/pharos-setup.XXXXXX")"
 trap 'rm -f "$LOG"' EXIT
-trap 'printf "\n  Interrompido. Rode ./setup.sh de novo para continuar de onde parou (downloads de modelos são retomados).\n"; exit 130' INT TERM
+trap 'printf "\n  Interrupted. Run ./setup.sh again to continue where it stopped (model downloads resume).\n"; exit 130' INT TERM
 
-# ---------------------------------------------------------------------------------------- saída
+# ---------------------------------------------------------------------------------------- output
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_OK=$'\033[32m'; C_AV=$'\033[33m'; C_ER=$'\033[31m'; C_B=$'\033[1m'; C_D=$'\033[2m'; C_0=$'\033[0m'
 else
   C_OK=""; C_AV=""; C_ER=""; C_B=""; C_D=""; C_0=""
 fi
-passo()  { printf '\n%s%s%s\n' "$C_B" "$*" "$C_0"; }
+step()   { printf '\n%s%s%s\n' "$C_B" "$*" "$C_0"; }
 ok()     { printf '  %s✓%s %s\n' "$C_OK" "$C_0" "$*"; }
 info()   { printf '    %s\n' "$*"; }
-aviso()  { printf '  %s!%s %s\n' "$C_AV" "$C_0" "$*"; AVISOS=$((AVISOS + 1)); RESUMO_AVISOS="$RESUMO_AVISOS  ! $*"$'\n'; }
-nota()   { printf '  %s!%s %s\n' "$C_AV" "$C_0" "$*"; }   # como aviso, mas não entra no resumo (é só o aviso de que vou tentar resolver)
-falha()  { printf '  %s✗%s %s\n' "$C_ER" "$C_0" "$*"; FALHAS=$((FALHAS + 1)); RESUMO_FALHAS="$RESUMO_FALHAS  ✗ $*"$'\n'; }
-rodar()  { printf '    %s$ %s%s\n' "$C_D" "$*" "$C_0"; "$@"; }
+warn()   { printf '  %s!%s %s\n' "$C_AV" "$C_0" "$*"; WARNINGS=$((WARNINGS + 1)); WARN_SUMMARY="$WARN_SUMMARY  ! $*"$'\n'; }
+note()   { printf '  %s!%s %s\n' "$C_AV" "$C_0" "$*"; }   # like warn, but not added to the summary (just a heads-up that I'll try to fix it)
+fail()   { printf '  %s✗%s %s\n' "$C_ER" "$C_0" "$*"; FAILURES=$((FAILURES + 1)); FAIL_SUMMARY="$FAIL_SUMMARY  ✗ $*"$'\n'; }
+run_cmd() { printf '    %s$ %s%s\n' "$C_D" "$*" "$C_0"; "$@"; }
 
-uso() {
-  cat <<'FIM'
-Uso: ./setup.sh [opções]
+usage() {
+  cat <<'END'
+Usage: ./setup.sh [options]
 
-Verifica e prepara o ambiente: Python + bibliotecas (.venv), Tesseract e idiomas, Ollama e modelos gemma.
+Checks and prepares the environment: Python + libraries (.venv), Tesseract and languages, Ollama and gemma models.
 
-  --verificar            só confere e mostra o que falta; não instala nem altera nada
-  -y, --sim              responde "sim" a tudo (não pergunta)
-  --ollama URL           Ollama em outra máquina (ex.: http://pi.local:11434). Padrão: $OLLAMA_HOST ou localhost.
-                         Fica gravado em .setup.conf e o atalho ./pharos.sh passa a usá-lo
-  --modelo NOME          modelo de tradução (padrão: translategemma:12b)
-  --modelo-ocr NOME      modelo geral para as sugestões de correção do OCR (padrão: gemma3:12b)
-  --sem-modelo-ocr       não baixa o modelo geral das sugestões de OCR
-  --sem-modelos          não baixa nenhum modelo (só confere quais existem)
-  --sem-ocr              não confere nem instala o Tesseract
-  --idiomas LISTA        idiomas extras do OCR, separados por vírgula (ex.: fra,ita,lat). Já vêm: eng osd deu spa por
-  --python CMD           interpretador Python a usar (padrão: o primeiro 3.10+ que achar)
-  --sem-venv             usa o Python escolhido direto, sem criar o .venv (não recomendado)
-  --dev                  também instala o necessário para os testes (reportlab, playwright + chromium)
-  --calibre              também instala o Calibre (lê MOBI/AZW3/FB2/DOCX)
-  --instalar-ollama      (Linux) aceita rodar o instalador oficial do Ollama (https://ollama.com/install.sh)
-  --testar               faz uma tradução curta com cada modelo para ver se carregam (leva alguns minutos)
-  -h, --ajuda            mostra esta ajuda
+  --check                only checks and shows what is missing; installs and changes nothing
+  -y, --yes              answers "yes" to everything (does not ask)
+  --ollama URL           Ollama on another machine (e.g.: http://pi.local:11434). Default: $OLLAMA_HOST or localhost.
+                         Saved in .setup.conf and the ./pharos.sh shortcut starts using it
+  --model NAME           translation model (default: translategemma:12b)
+  --ocr-model NAME       general model for the OCR correction suggestions (default: gemma3:12b)
+  --no-ocr-model         do not download the general model for the OCR suggestions
+  --no-models            do not download any model (only checks which exist)
+  --no-ocr               do not check or install Tesseract
+  --languages LIST       extra OCR languages, comma-separated (e.g.: fra,ita,lat). Already included: eng osd deu spa por
+  --python CMD           Python interpreter to use (default: the first 3.10+ found)
+  --no-venv              use the chosen Python directly, without creating the .venv (not recommended)
+  --dev                  also install what the tests need (reportlab, playwright + chromium)
+  --calibre              also install Calibre (reads MOBI/AZW3/FB2/DOCX)
+  --install-ollama       (Linux) accept running Ollama's official installer (https://ollama.com/install.sh)
+  --test                 do a short translation with each model to see that they load (takes a few minutes)
+  -h, --help             show this help
 
-Exemplos:
-  ./setup.sh                                  # prepara tudo, perguntando antes de instalar
-  ./setup.sh --verificar                      # só diagnostica
-  ./setup.sh -y --ollama http://pi.local:11434 --sem-modelo-ocr
-Código de saída: 0 = ambiente pronto; 1 = falta algo obrigatório.
-FIM
+Examples:
+  ./setup.sh                                  # prepares everything, asking before installing
+  ./setup.sh --check                          # only diagnoses
+  ./setup.sh -y --ollama http://pi.local:11434 --no-ocr-model
+Exit code: 0 = environment ready; 1 = something required is missing.
+END
 }
 
-# ---------------------------------------------------------------------------------------- argumentos
-precisa_valor() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "A opção $1 precisa de um valor. Veja: ./setup.sh --ajuda" >&2; exit 2; }; }
+# ---------------------------------------------------------------------------------------- arguments
+needs_value() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "The option $1 needs a value. See: ./setup.sh --help" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --verificar|--check) VERIFICAR=1 ;;
-    -y|--sim|--yes) SIM=1 ;;
-    --ollama) precisa_valor "$@"; OLLAMA_URL_ARG="$2"; shift ;;
-    --modelo) precisa_valor "$@"; MODELO_TRAD="$2"; MODELO_TRAD_EXPLICITO=1; shift ;;
-    --modelo-ocr) precisa_valor "$@"; MODELO_GERAL="$2"; MODELO_GERAL_EXPLICITO=1; shift ;;
-    --sem-modelo-ocr) SEM_MODELO_GERAL=1 ;;
-    --sem-modelos) SEM_MODELOS=1 ;;
-    --sem-ocr) SEM_OCR=1 ;;
-    --idiomas) precisa_valor "$@"; IDIOMAS_EXTRA="$(printf '%s' "$2" | tr ',' ' ')"
-               case "$IDIOMAS_EXTRA" in *[!a-zA-Z_\ ]*) echo "--idiomas: use códigos do Tesseract separados por vírgula (ex.: fra,ita,lat)" >&2; exit 2 ;; esac
+    --check) CHECK=1 ;;
+    -y|--yes) YES=1 ;;
+    --ollama) needs_value "$@"; OLLAMA_URL_ARG="$2"; shift ;;
+    --model) needs_value "$@"; TRANS_MODEL="$2"; TRANS_MODEL_SET=1; shift ;;
+    --ocr-model) needs_value "$@"; GENERAL_MODEL="$2"; GENERAL_MODEL_SET=1; shift ;;
+    --no-ocr-model) NO_GENERAL_MODEL=1 ;;
+    --no-models) NO_MODELS=1 ;;
+    --no-ocr) NO_OCR=1 ;;
+    --languages) needs_value "$@"; EXTRA_LANGS="$(printf '%s' "$2" | tr ',' ' ')"
+               case "$EXTRA_LANGS" in *[!a-zA-Z_\ ]*) echo "--languages: use Tesseract codes separated by commas (e.g.: fra,ita,lat)" >&2; exit 2 ;; esac
                shift ;;
-    --python) precisa_valor "$@"; PYTHON_ARG="$2"; shift ;;
-    --sem-venv) SEM_VENV=1 ;;
+    --python) needs_value "$@"; PYTHON_ARG="$2"; shift ;;
+    --no-venv) NO_VENV=1 ;;
     --dev) DEV=1 ;;
     --calibre) CALIBRE=1 ;;
-    --instalar-ollama) INSTALAR_OLLAMA=1 ;;
-    --testar) TESTAR=1 ;;
-    -h|--ajuda|--help) uso; exit 0 ;;
-    *) echo "Opção desconhecida: $1" >&2; echo "Veja: ./setup.sh --ajuda" >&2; exit 2 ;;
+    --install-ollama) INSTALL_OLLAMA=1 ;;
+    --test) TEST=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; echo "See: ./setup.sh --help" >&2; exit 2 ;;
   esac
   shift
 done
 
 
-# ---------------------------------------------------------------------------------------- trechos em Python
-# (guardados em variáveis para não ficarem dentro de $(...): o bash 3.2 do macOS tropeça em heredoc ali dentro)
+# ---------------------------------------------------------------------------------------- Python snippets
+# (kept in variables so they are not inside $(...): the macOS bash 3.2 trips over a heredoc there)
 IFS= read -r -d '' PY_IMPORTS <<'PY' || true
 import importlib, importlib.metadata as md
-for modulo, dist in (("PIL", "pillow"), ("numpy", "numpy"), ("pypdfium2", "pypdfium2"), ("pdfplumber", "pdfplumber"),
+for module, dist in (("PIL", "pillow"), ("numpy", "numpy"), ("pypdfium2", "pypdfium2"), ("pdfplumber", "pdfplumber"),
                      ("bs4", "beautifulsoup4"), ("docx", "python-docx")):
     try:
-        importlib.import_module(modulo)
+        importlib.import_module(module)
         try:
             v = md.version(dist)
         except Exception:
             v = "?"
         print("ok|%s|%s" % (dist, v))
     except Exception as e:
-        print("falta|%s|%s" % (dist, type(e).__name__))
+        print("missing|%s|%s" % (dist, type(e).__name__))
 PY
 
 IFS= read -r -d '' PY_PULL <<'PY' || true
 import json, sys, urllib.request
-url, modelo = sys.argv[1], sys.argv[2]
-req = urllib.request.Request(url + "/api/pull", data=json.dumps({"model": modelo, "name": modelo, "stream": True}).encode(),
+url, model = sys.argv[1], sys.argv[2]
+req = urllib.request.Request(url + "/api/pull", data=json.dumps({"model": model, "name": model, "stream": True}).encode(),
                              headers={"Content-Type": "application/json"})
 tty = sys.stdout.isatty()
-ultimo, proximo, sucesso = "", {}, False
+last, nxt, success = "", {}, False
 try:
     with urllib.request.urlopen(req, timeout=180) as r:
-        for linha in r:
-            linha = linha.strip()
-            if not linha:
+        for line in r:
+            line = line.strip()
+            if not line:
                 continue
-            d = json.loads(linha)
+            d = json.loads(line)
             if "error" in d:
-                print("\n    erro do Ollama: %s" % d["error"])
+                print("\n    Ollama error: %s" % d["error"])
                 sys.exit(1)
             st = d.get("status", "")
-            tot, feito = d.get("total"), d.get("completed")
-            if tot and feito is not None:
-                pct = 100.0 * feito / tot
-                msg = "    %-26s %5.1f%%  %.1f/%.1f GB" % (st[:26], pct, feito / 1e9, tot / 1e9)
+            tot, done = d.get("total"), d.get("completed")
+            if tot and done is not None:
+                pct = 100.0 * done / tot
+                msg = "    %-26s %5.1f%%  %.1f/%.1f GB" % (st[:26], pct, done / 1e9, tot / 1e9)
                 if not tty:
-                    if pct < proximo.get(st, 0):
+                    if pct < nxt.get(st, 0):
                         continue
-                    proximo[st] = (int(pct) // 10 + 1) * 10
+                    nxt[st] = (int(pct) // 10 + 1) * 10
             else:
                 msg = "    " + st[:70]
-            if msg != ultimo:
+            if msg != last:
                 if tty:
                     sys.stdout.write("\r" + msg.ljust(80))
                 else:
                     sys.stdout.write(msg + "\n")
                 sys.stdout.flush()
-                ultimo = msg
+                last = msg
             if st == "success":
-                sucesso = True
+                success = True
 except KeyboardInterrupt:
-    print("\n    interrompido")
+    print("\n    interrupted")
     sys.exit(130)
 except Exception as e:
-    print("\n    falha na conexão: %s" % e)
+    print("\n    connection failure: %s" % e)
     sys.exit(1)
 if tty:
     print()
-sys.exit(0 if sucesso else 1)
+sys.exit(0 if success else 1)
 PY
 
-IFS= read -r -d '' PY_TESTE <<'PY' || true
+IFS= read -r -d '' PY_TEST <<'PY' || true
 import json, sys, time, urllib.request
-url, modelo = sys.argv[1], sys.argv[2]
-def post(caminho, corpo, timeout=900):
-    req = urllib.request.Request(url + caminho, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+url, model = sys.argv[1], sys.argv[2]
+def post(path, body, timeout=900):
+    req = urllib.request.Request(url + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 t0 = time.time()
 try:
-    r = post("/api/chat", {"model": modelo, "stream": False, "options": {"num_predict": 60, "temperature": 0},
+    r = post("/api/chat", {"model": model, "stream": False, "options": {"num_predict": 60, "temperature": 0},
                            "messages": [{"role": "user", "content": "Translate from German to Portuguese. Reply with the translation only: Der Leuchtturm stand allein am Rand der Klippe."}]})
     txt = (r.get("message", {}).get("content") or "").strip().replace("\n", " ")
     if not txt:
-        print("    resposta vazia")
+        print("    empty response")
         sys.exit(1)
     print("    %.0f s · «%s»" % (time.time() - t0, txt[:90]))
-    post("/api/generate", {"model": modelo, "keep_alive": 0}, 30)
+    post("/api/generate", {"model": model, "keep_alive": 0}, 30)
 except Exception as e:
-    print("    falhou: %s" % e)
+    print("    failed: %s" % e)
     sys.exit(1)
 PY
 
@@ -210,239 +210,239 @@ import sys
 sys.path.insert(0, sys.argv[1])
 try:
     from pharos.ocr import tesseract
-    exe = tesseract.localizar()
-    inst = sorted(tesseract.idiomas_instalados(exe))
+    exe = tesseract.locate()
+    inst = sorted(tesseract.installed_languages(exe))
     print("ok|" + ", ".join(i for i in inst if i != "osd"))
 except Exception as e:
-    print("erro|" + (str(e).splitlines() or ["?"])[0])
+    print("error|" + (str(e).splitlines() or ["?"])[0])
 PY
 
-# ---------------------------------------------------------------------------------------- configuração salva
-conf_valor() { [ -f "$CONF" ] || return 0; ( . "$CONF" 2>/dev/null; eval "printf '%s' \"\${$1:-}\"" ); }
-SALVO_OLLAMA="$(conf_valor OLLAMA_URL)"; SALVO_MODELO="$(conf_valor MODELO)"; SALVO_MODELO_OCR="$(conf_valor MODELO_OCR)"
-[ -z "$OLLAMA_URL_ARG" ] && [ -n "$SALVO_OLLAMA" ] && OLLAMA_URL_ARG="$SALVO_OLLAMA"
-if [ "$MODELO_TRAD_EXPLICITO" != 1 ] && [ -n "$SALVO_MODELO" ]; then MODELO_TRAD="$SALVO_MODELO"; MODELO_TRAD_EXPLICITO=1; fi
-if [ "$MODELO_GERAL_EXPLICITO" != 1 ] && [ -n "$SALVO_MODELO_OCR" ]; then MODELO_GERAL="$SALVO_MODELO_OCR"; MODELO_GERAL_EXPLICITO=1; fi
+# ---------------------------------------------------------------------------------------- saved configuration
+conf_value() { [ -f "$CONF" ] || return 0; ( . "$CONF" 2>/dev/null; eval "printf '%s' \"\${$1:-}\"" ); }
+SAVED_OLLAMA="$(conf_value OLLAMA_URL)"; SAVED_MODEL="$(conf_value MODEL)"; SAVED_OCR_MODEL="$(conf_value OCR_MODEL)"
+[ -z "$OLLAMA_URL_ARG" ] && [ -n "$SAVED_OLLAMA" ] && OLLAMA_URL_ARG="$SAVED_OLLAMA"
+if [ "$TRANS_MODEL_SET" != 1 ] && [ -n "$SAVED_MODEL" ]; then TRANS_MODEL="$SAVED_MODEL"; TRANS_MODEL_SET=1; fi
+if [ "$GENERAL_MODEL_SET" != 1 ] && [ -n "$SAVED_OCR_MODEL" ]; then GENERAL_MODEL="$SAVED_OCR_MODEL"; GENERAL_MODEL_SET=1; fi
 
-# ---------------------------------------------------------------------------------------- utilitários
-tem() { command -v "$1" >/dev/null 2>&1; }
+# ---------------------------------------------------------------------------------------- utilities
+has() { command -v "$1" >/dev/null 2>&1; }
 
-confirmar() {  # confirmar "pergunta" [s|n = resposta padrão]
-  local pergunta="$1" padrao="${2:-s}" r
-  if [ "$SIM" = 1 ]; then [ "$padrao" = s ]; return; fi   # -y aceita o que é de rotina; o que é de risco (padrão "n") fica de fora
-  [ -t 0 ] || return 1                       # sem terminal e sem -y: nunca instala sozinho
-  if [ "$padrao" = s ]; then printf '  ? %s [S/n] ' "$pergunta"; else printf '  ? %s [s/N] ' "$pergunta"; fi
+confirm() {  # confirm "question" [y|n = default answer]
+  local question="$1" default="${2:-y}" r
+  if [ "$YES" = 1 ]; then [ "$default" = y ]; return; fi   # -y accepts routine things; risky ones (default "n") stay out
+  [ -t 0 ] || return 1                       # no terminal and no -y: never installs on its own
+  if [ "$default" = y ]; then printf '  ? %s [Y/n] ' "$question"; else printf '  ? %s [y/N] ' "$question"; fi
   read -r r || return 1
   case "$r" in
-    "") [ "$padrao" = s ] ;;
-    [sSyY]*) return 0 ;;
+    "") [ "$default" = y ] ;;
+    [yY]*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-como_root() {
+as_root() {
   if [ "$(id -u)" -eq 0 ]; then "$@"
-  elif tem sudo; then sudo "$@"
-  else echo "    (precisa de administrador e o sudo não existe)" >&2; return 1
+  elif has sudo; then sudo "$@"
+  else echo "    (needs administrator and sudo does not exist)" >&2; return 1
   fi
 }
 
-# Pergunta e instala com o gerenciador de pacotes. $1 = descrição; demais = comando (já pronto para rodar).
-instalar_com() {
-  local descricao="$1"; shift
-  if [ "$VERIFICAR" = 1 ]; then return 1; fi
-  confirmar "Instalar $descricao agora?" s || { info "Para instalar à mão:  $*"; return 1; }
-  rodar "$@"
+# Asks and installs with the package manager. $1 = description; the rest = command (ready to run).
+install_with() {
+  local description="$1"; shift
+  if [ "$CHECK" = 1 ]; then return 1; fi
+  confirm "Install $description now?" y || { info "To install by hand:  $*"; return 1; }
+  run_cmd "$@"
 }
 
-apt_instalar() {  # apt_instalar "descrição" pacote...   (com 'apt-get update' e nova tentativa se o índice estiver velho)
+apt_install() {  # apt_install "description" package...   (with 'apt-get update' and a retry if the index is stale)
   local d="$1"; shift
-  [ "$VERIFICAR" = 1 ] && return 1
-  confirmar "Instalar $d agora?" s || { info "Para instalar à mão:  sudo apt-get update && sudo apt-get install -y $*"; return 1; }
-  rodar como_root apt-get install -y "$@" || { rodar como_root apt-get update -qq && rodar como_root apt-get install -y "$@"; }
+  [ "$CHECK" = 1 ] && return 1
+  confirm "Install $d now?" y || { info "To install by hand:  sudo apt-get update && sudo apt-get install -y $*"; return 1; }
+  run_cmd as_root apt-get install -y "$@" || { run_cmd as_root apt-get update -qq && run_cmd as_root apt-get install -y "$@"; }
 }
 
-livre_gb() {  # espaço livre (GB) no volume do diretório $1 (ou do primeiro pai que existir)
+free_gb() {  # free space (GB) on the volume of directory $1 (or the first parent that exists)
   local d="$1"
   while [ ! -d "$d" ] && [ "$d" != "/" ]; do d="$(dirname "$d")"; done
   df -Pk "$d" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}'
 }
 
 ram_gb() {
-  if [ "$SO" = Darwin ]; then echo $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+  if [ "$OS_" = Darwin ]; then echo $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
   else awk '/MemTotal/ {printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0
   fi
 }
 
-versao_inteira() { local v="${1%%.*}"; case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac; }
+major_version() { local v="${1%%.*}"; case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac; }
 
-# ---------------------------------------------------------------------------------------- 1. sistema
-detectar_pm() {
-  if tem brew; then PM=brew
+# ---------------------------------------------------------------------------------------- 1. system
+detect_pm() {
+  if has brew; then PM=brew
   elif [ -x /opt/homebrew/bin/brew ]; then eval "$(/opt/homebrew/bin/brew shellenv)"; PM=brew
   elif [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"; PM=brew
-  elif tem apt-get; then PM=apt
-  elif tem dnf; then PM=dnf
-  elif tem pacman; then PM=pacman
-  elif tem zypper; then PM=zypper
+  elif has apt-get; then PM=apt
+  elif has dnf; then PM=dnf
+  elif has pacman; then PM=pacman
+  elif has zypper; then PM=zypper
   else PM=""
   fi
 }
 
-passo_sistema() {
-  passo "1. Sistema"
-  case "$SO" in
-    Darwin) ok "macOS $(sw_vers -productVersion 2>/dev/null || true) ($ARQ)" ;;
-    Linux)  ok "Linux ($ARQ)" ;;
-    *)      aviso "Sistema '$SO' não testado; o script segue como se fosse Linux." ;;
+step_system() {
+  step "1. System"
+  case "$OS_" in
+    Darwin) ok "macOS $(sw_vers -productVersion 2>/dev/null || true) ($ARCH)" ;;
+    Linux)  ok "Linux ($ARCH)" ;;
+    *)      warn "System '$OS_' not tested; the script carries on as if it were Linux." ;;
   esac
-  detectar_pm
-  if [ -n "$PM" ]; then ok "Gerenciador de pacotes: $PM"
-  elif [ "$SO" = Darwin ]; then
-    aviso "Homebrew não encontrado. Instale em https://brew.sh e rode este script de novo (ele facilita tudo no macOS)."
+  detect_pm
+  if [ -n "$PM" ]; then ok "Package manager: $PM"
+  elif [ "$OS_" = Darwin ]; then
+    warn "Homebrew not found. Install it from https://brew.sh and run this script again (it makes everything easier on macOS)."
   else
-    aviso "Nenhum gerenciador de pacotes conhecido (apt, dnf, pacman, zypper): instale as dependências à mão."
+    warn "No known package manager (apt, dnf, pacman, zypper): install the dependencies by hand."
   fi
-  tem curl && ok "curl presente" || falha "curl não encontrado (necessário para baixar modelos e dados do OCR)"
+  has curl && ok "curl present" || fail "curl not found (needed to download models and OCR data)"
   local ram; ram="$(ram_gb)"
   if [ "$ram" -gt 0 ]; then
-    if [ "$ram" -lt 12 ]; then aviso "${ram} GB de RAM: os modelos de 12B pedem uns 10 GB. Considere um modelo menor (ex.: --modelo gemma3:4b) ou o Ollama em outra máquina (--ollama)."
-    else ok "${ram} GB de RAM (modelos 12B rodam um de cada vez; feche apps pesados durante a tradução)"; fi
+    if [ "$ram" -lt 12 ]; then warn "${ram} GB of RAM: the 12B models ask for about 10 GB. Consider a smaller model (e.g.: --model gemma3:4b) or Ollama on another machine (--ollama)."
+    else ok "${ram} GB of RAM (12B models run one at a time; close heavy apps during the translation)"; fi
   fi
 }
 
 # ---------------------------------------------------------------------------------------- 2. Python
 python_ok() { "$1" -c "import sys; sys.exit(0 if sys.version_info >= ($PY_MIN_MAJOR, $PY_MIN_MINOR) else 1)" >/dev/null 2>&1; }
 
-# Como python_ok, mas sem executar o "python3" de /usr/bin do macOS quando faltam as Ferramentas de Linha de Comando:
-# nesse caso ele é só um atalho que abre uma janela pedindo para instalá-las.
-python_usavel() {
-  if [ "$SO" = Darwin ] && [ "$(command -v "$1" 2>/dev/null)" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1; then
-    PY_ATALHO=1
+# Like python_ok, but without running the macOS /usr/bin "python3" when the Command Line Tools are missing:
+# in that case it is just a shim that opens a window asking to install them.
+python_usable() {
+  if [ "$OS_" = Darwin ] && [ "$(command -v "$1" 2>/dev/null)" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1; then
+    PY_SHIM=1
     return 1
   fi
   python_ok "$1"
 }
 
-achar_python() {
+find_python() {
   local c
   if [ -n "$PYTHON_ARG" ]; then
-    if { tem "$PYTHON_ARG" || [ -x "$PYTHON_ARG" ]; } && python_usavel "$PYTHON_ARG"; then PY="$(command -v "$PYTHON_ARG" 2>/dev/null || echo "$PYTHON_ARG")"; return 0; fi
+    if { has "$PYTHON_ARG" || [ -x "$PYTHON_ARG" ]; } && python_usable "$PYTHON_ARG"; then PY="$(command -v "$PYTHON_ARG" 2>/dev/null || echo "$PYTHON_ARG")"; return 0; fi
     return 1
   fi
   for c in python3.13 python3.12 python3.11 python3.10 python3 python /opt/homebrew/bin/python3 /usr/local/bin/python3; do
-    if { tem "$c" || [ -x "$c" ]; } && python_usavel "$c"; then PY="$(command -v "$c" 2>/dev/null || echo "$c")"; return 0; fi
+    if { has "$c" || [ -x "$c" ]; } && python_usable "$c"; then PY="$(command -v "$c" 2>/dev/null || echo "$c")"; return 0; fi
   done
   return 1
 }
 
-instalar_python() {
+install_python() {
   case "$PM" in
-    brew)   instalar_com "o Python 3.12 (brew)" brew install python@3.12 ;;
-    apt)    apt_instalar "o Python 3 com venv e pip (apt)" python3 python3-venv python3-pip ;;
-    dnf)    instalar_com "o Python 3 (dnf)" como_root dnf install -y python3 python3-pip ;;
-    pacman) instalar_com "o Python 3 (pacman)" como_root pacman -S --noconfirm python python-pip ;;
-    zypper) instalar_com "o Python 3 (zypper)" como_root zypper install -y python3 python3-pip ;;
+    brew)   install_with "Python 3.12 (brew)" brew install python@3.12 ;;
+    apt)    apt_install "Python 3 with venv and pip (apt)" python3 python3-venv python3-pip ;;
+    dnf)    install_with "Python 3 (dnf)" as_root dnf install -y python3 python3-pip ;;
+    pacman) install_with "Python 3 (pacman)" as_root pacman -S --noconfirm python python-pip ;;
+    zypper) install_with "Python 3 (zypper)" as_root zypper install -y python3 python3-pip ;;
     *)      return 1 ;;
   esac
 }
 
-passo_python() {
-  passo "2. Python e ambiente virtual"
-  if ! achar_python; then
+step_python() {
+  step "2. Python and virtual environment"
+  if ! find_python; then
     if [ -n "$PYTHON_ARG" ]; then
-      [ "$PY_ATALHO" = 1 ] && info "Esse python3 do macOS é só um atalho (pede as Ferramentas de Linha de Comando); o script não o executa."
-      falha "'$PYTHON_ARG' não existe ou é anterior ao Python $PY_MIN_MAJOR.$PY_MIN_MINOR"; return 1
+      [ "$PY_SHIM" = 1 ] && info "That macOS python3 is just a shim (asks for the Command Line Tools); the script does not run it."
+      fail "'$PYTHON_ARG' does not exist or is older than Python $PY_MIN_MAJOR.$PY_MIN_MINOR"; return 1
     fi
-    nota "Python $PY_MIN_MAJOR.$PY_MIN_MINOR+ não encontrado ($(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo 'nenhum python3'))."
-    instalar_python && { hash -r; achar_python; } || true
+    note "Python $PY_MIN_MAJOR.$PY_MIN_MINOR+ not found ($(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo 'no python3'))."
+    install_python && { hash -r; find_python; } || true
   fi
   if [ -z "$PY" ]; then
-    [ "$PY_ATALHO" = 1 ] && info "O python3 de /usr/bin do macOS é só um atalho (pede as Ferramentas de Linha de Comando); o script não o executa."
-    falha "Python $PY_MIN_MAJOR.$PY_MIN_MINOR+ ausente. macOS: brew install python@3.12 · Debian/Ubuntu: sudo apt install python3 python3-venv"
+    [ "$PY_SHIM" = 1 ] && info "The macOS /usr/bin python3 is just a shim (asks for the Command Line Tools); the script does not run it."
+    fail "Python $PY_MIN_MAJOR.$PY_MIN_MINOR+ missing. macOS: brew install python@3.12 · Debian/Ubuntu: sudo apt install python3 python3-venv"
     return 1
   fi
-  ok "Python $("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])') em $PY"
+  ok "Python $("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])') at $PY"
   PYANY="$PY"
 
-  if [ "$SEM_VENV" = 1 ]; then
+  if [ "$NO_VENV" = 1 ]; then
     VPY="$PY"
-    aviso "Sem ambiente virtual (--sem-venv): as bibliotecas vão para o Python escolhido."
+    warn "No virtual environment (--no-venv): the libraries go into the chosen Python."
     return 0
   fi
 
   if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c 'pass' >/dev/null 2>&1 && python_ok "$VENV/bin/python"; then
-    ok "Ambiente virtual .venv já existe"
+    ok "The .venv virtual environment already exists"
     VPY="$VENV/bin/python"
     return 0
   fi
-  if [ -e "$VENV" ] && [ "$VERIFICAR" != 1 ]; then
-    nota ".venv existe, mas está quebrado ou é de um Python antigo: vou recriá-lo."
+  if [ -e "$VENV" ] && [ "$CHECK" != 1 ]; then
+    note ".venv exists, but it is broken or from an old Python: I'll recreate it."
     rm -rf "$VENV"
   fi
-  if [ "$VERIFICAR" = 1 ]; then
-    falha "Ambiente virtual .venv não existe ou está quebrado (rode ./setup.sh)"
+  if [ "$CHECK" = 1 ]; then
+    fail "The .venv virtual environment does not exist or is broken (run ./setup.sh)"
     return 1
   fi
   printf '    %s$ %s -m venv .venv%s\n' "$C_D" "$PY" "$C_0"
   if ! "$PY" -m venv "$VENV" >"$LOG" 2>&1; then
     if [ "$PM" = apt ] && grep -qi "ensurepip\|python3-venv" "$LOG"; then
-      apt_instalar "o módulo venv do Python (apt)" python3-venv python3-pip && "$PY" -m venv "$VENV" >"$LOG" 2>&1
+      apt_install "the Python venv module (apt)" python3-venv python3-pip && "$PY" -m venv "$VENV" >"$LOG" 2>&1
     fi
   fi
   if [ -x "$VENV/bin/python" ]; then
-    ok "Ambiente virtual criado em .venv"
+    ok "Virtual environment created in .venv"
     VPY="$VENV/bin/python"
   else
     tail -5 "$LOG" | sed 's/^/    /'
-    falha "Não consegui criar o ambiente virtual .venv"
+    fail "I could not create the .venv virtual environment"
     return 1
   fi
 }
 
-# ---------------------------------------------------------------------------------------- 3. bibliotecas
-passo_bibliotecas() {
-  passo "3. Bibliotecas Python"
-  [ -n "$VPY" ] || { info "Pulado: ainda não há ambiente Python (veja o passo 2)."; return 0; }
-  if [ "$VERIFICAR" != 1 ]; then
+# ---------------------------------------------------------------------------------------- 3. libraries
+step_libs() {
+  step "3. Python libraries"
+  [ -n "$VPY" ] || { info "Skipped: there is no Python environment yet (see step 2)."; return 0; }
+  if [ "$CHECK" != 1 ]; then
     "$VPY" -m pip --version >/dev/null 2>&1 || "$VPY" -m ensurepip --upgrade >/dev/null 2>&1
     "$VPY" -m pip install --disable-pip-version-check --quiet --upgrade pip >"$LOG" 2>&1 || true
-    printf '    instalando requirements.txt (pode levar um minuto)...\n'
-    if "$VPY" -m pip install --disable-pip-version-check -r "$RAIZ/requirements.txt" >"$LOG" 2>&1; then
-      ok "requirements.txt instalado"
+    printf '    installing requirements.txt (may take a minute)...\n'
+    if "$VPY" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt" >"$LOG" 2>&1; then
+      ok "requirements.txt installed"
     else
       tail -8 "$LOG" | sed 's/^/    /'
-      falha "pip não conseguiu instalar requirements.txt (sem internet? versão do Python sem pacotes prontos?)"
+      fail "pip could not install requirements.txt (no internet? a Python version without prebuilt packages?)"
     fi
   fi
-  local saida linha faltam=""
-  saida="$("$VPY" -c "$PY_IMPORTS" 2>/dev/null)"
-  while IFS='|' read -r estado nome extra; do
-    [ -n "$estado" ] || continue
-    if [ "$estado" = ok ]; then ok "$nome $extra"; else faltam="$faltam $nome"; fi
-  done <<<"$saida"
-  if [ -n "$faltam" ]; then
-    falha "Bibliotecas que não importam:$faltam  →  ${VPY} -m pip install -r requirements.txt"
+  local out line missing=""
+  out="$("$VPY" -c "$PY_IMPORTS" 2>/dev/null)"
+  while IFS='|' read -r state name extra; do
+    [ -n "$state" ] || continue
+    if [ "$state" = ok ]; then ok "$name $extra"; else missing="$missing $name"; fi
+  done <<<"$out"
+  if [ -n "$missing" ]; then
+    fail "Libraries that do not import:$missing  →  ${VPY} -m pip install -r requirements.txt"
   fi
-  if [ "$DEV" = 1 ] && [ "$VERIFICAR" != 1 ]; then
-    printf '    instalando ferramentas de teste (reportlab, playwright)...\n'
+  if [ "$DEV" = 1 ] && [ "$CHECK" != 1 ]; then
+    printf '    installing test tools (reportlab, playwright)...\n'
     if "$VPY" -m pip install --disable-pip-version-check reportlab playwright >"$LOG" 2>&1; then
-      ok "reportlab e playwright instalados"
-      if confirmar "Baixar o Chromium do Playwright (~150 MB) para os testes da tela de revisão?" s; then
-        rodar "$VPY" -m playwright install chromium >"$LOG" 2>&1 && ok "Chromium do Playwright instalado" \
-          || { tail -3 "$LOG" | sed 's/^/    /'; aviso "Não consegui baixar o Chromium do Playwright (os testes da tela serão pulados)."; }
+      ok "reportlab and playwright installed"
+      if confirm "Download Playwright's Chromium (~150 MB) for the review-screen tests?" y; then
+        run_cmd "$VPY" -m playwright install chromium >"$LOG" 2>&1 && ok "Playwright Chromium installed" \
+          || { tail -3 "$LOG" | sed 's/^/    /'; warn "I could not download Playwright's Chromium (the screen tests will be skipped)."; }
       fi
     else
       tail -5 "$LOG" | sed 's/^/    /'
-      aviso "Não consegui instalar as ferramentas de teste."
+      warn "I could not install the test tools."
     fi
   fi
 }
 
 # ---------------------------------------------------------------------------------------- 4. OCR
-achar_tesseract() {
+find_tesseract() {
   TESS="${TESSERACT_CMD:-}"
-  [ -n "$TESS" ] && { tem "$TESS" || [ -x "$TESS" ]; } && return 0
+  [ -n "$TESS" ] && { has "$TESS" || [ -x "$TESS" ]; } && return 0
   TESS="$(command -v tesseract 2>/dev/null || true)"
   [ -n "$TESS" ] && return 0
   local c
@@ -452,7 +452,7 @@ achar_tesseract() {
   TESS=""; return 1
 }
 
-idiomas_tesseract() {
+tesseract_langs() {
   "$TESS" --list-langs 2>&1 | grep -v -i -e '^list of available' -e '^error' -e '^warning' | sed 's/[[:space:]]*$//' | grep -v '^$' || true
 }
 
@@ -470,14 +470,14 @@ tessdata_dir() {
   printf '%s' "$d"
 }
 
-baixar_traineddata() {  # baixar_traineddata IDIOMA REPOSITÓRIO(best|fast)
+download_traineddata() {  # download_traineddata LANGUAGE REPO(best|fast)
   local lang="$1" repo="$2" tmp ref url
   tmp="$(mktemp "${TMPDIR:-/tmp}/pharos-tess.XXXXXX")"
   for ref in main 4.1.0; do
     url="$TESSDATA_URL_BASE/tessdata_$repo/raw/$ref/$lang.traineddata"
     if curl -fsSL --retry 2 --max-time 600 -o "$tmp" "$url" 2>/dev/null && [ "$(wc -c <"$tmp")" -gt 10000 ]; then
       if [ -w "$TESSDATA_DIR" ]; then cp "$tmp" "$TESSDATA_DIR/$lang.traineddata" && chmod 644 "$TESSDATA_DIR/$lang.traineddata"
-      else como_root cp "$tmp" "$TESSDATA_DIR/$lang.traineddata" && como_root chmod 644 "$TESSDATA_DIR/$lang.traineddata"
+      else as_root cp "$tmp" "$TESSDATA_DIR/$lang.traineddata" && as_root chmod 644 "$TESSDATA_DIR/$lang.traineddata"
       fi
       local rc=$?
       rm -f "$tmp"
@@ -488,349 +488,349 @@ baixar_traineddata() {  # baixar_traineddata IDIOMA REPOSITÓRIO(best|fast)
   return 1
 }
 
-instalar_tesseract_pm() {  # $1 = lista de idiomas desejados
-  local l pacotes
+install_tesseract_pm() {  # $1 = list of desired languages
+  local l packages
   case "$PM" in
-    brew) instalar_com "o Tesseract com todos os idiomas (brew install tesseract tesseract-lang)" brew install tesseract tesseract-lang ;;
+    brew) install_with "Tesseract with all languages (brew install tesseract tesseract-lang)" brew install tesseract tesseract-lang ;;
     apt)
-      pacotes="tesseract-ocr"
-      for l in $1; do pacotes="$pacotes tesseract-ocr-$l"; done
-      apt_instalar "o Tesseract e os idiomas ($1) pelo apt" $pacotes ;;
-    dnf)    instalar_com "o Tesseract (dnf)" como_root dnf install -y tesseract ;;
-    pacman) instalar_com "o Tesseract (pacman)" como_root pacman -S --noconfirm tesseract ;;
-    zypper) instalar_com "o Tesseract (zypper)" como_root zypper install -y tesseract-ocr ;;
+      packages="tesseract-ocr"
+      for l in $1; do packages="$packages tesseract-ocr-$l"; done
+      apt_install "Tesseract and the languages ($1) via apt" $packages ;;
+    dnf)    install_with "Tesseract (dnf)" as_root dnf install -y tesseract ;;
+    pacman) install_with "Tesseract (pacman)" as_root pacman -S --noconfirm tesseract ;;
+    zypper) install_with "Tesseract (zypper)" as_root zypper install -y tesseract-ocr ;;
     *)      return 1 ;;
   esac
 }
 
-passo_ocr() {
-  passo "4. OCR (Tesseract)"
-  if [ "$SEM_OCR" = 1 ]; then info "Pulado (--sem-ocr). Livros escaneados não poderão ser lidos."; return 0; fi
-  local desejados="$IDIOMAS_BASE $IDIOMAS_EXTRA" faltam l v
-  if ! achar_tesseract; then
-    nota "Tesseract não encontrado."
-    instalar_tesseract_pm "$desejados" && { hash -r; achar_tesseract; } || true
+step_ocr() {
+  step "4. OCR (Tesseract)"
+  if [ "$NO_OCR" = 1 ]; then info "Skipped (--no-ocr). Scanned books cannot be read."; return 0; fi
+  local desired="$BASE_LANGS $EXTRA_LANGS" missing l v
+  if ! find_tesseract; then
+    note "Tesseract not found."
+    install_tesseract_pm "$desired" && { hash -r; find_tesseract; } || true
   fi
-  if ! achar_tesseract; then
-    falha "Tesseract ausente (necessário para livros escaneados). macOS: brew install tesseract tesseract-lang · Debian/Ubuntu: sudo apt install tesseract-ocr tesseract-ocr-deu"
+  if ! find_tesseract; then
+    fail "Tesseract missing (needed for scanned books). macOS: brew install tesseract tesseract-lang · Debian/Ubuntu: sudo apt install tesseract-ocr tesseract-ocr-deu"
     return 1
   fi
   v="$("$TESS" --version 2>&1 | head -1 | sed 's/^[^0-9]*//; s/[^0-9.].*$//')"
   if [ -z "$v" ]; then
-    falha "O Tesseract em $TESS não executa (instalação quebrada?). macOS: brew reinstall tesseract"
+    fail "The Tesseract at $TESS does not run (broken install?). macOS: brew reinstall tesseract"
     return 1
   fi
-  if [ "$(versao_inteira "$v")" -lt 4 ]; then
-    falha "Tesseract $v é antigo demais (precisa do 4 ou mais, com o motor LSTM)"
+  if [ "$(major_version "$v")" -lt 4 ]; then
+    fail "Tesseract $v is too old (needs 4 or newer, with the LSTM engine)"
     return 1
   fi
-  ok "Tesseract $v em $TESS"
+  ok "Tesseract $v at $TESS"
 
-  local inst; inst="$(idiomas_tesseract)"
-  faltam=""
-  for l in $desejados; do grep -Fxq "$l" <<<"$inst" || faltam="$faltam $l"; done
-  if [ -n "$faltam" ] && [ "$VERIFICAR" != 1 ]; then
-    nota "Idiomas do OCR que faltam:$faltam"
+  local inst; inst="$(tesseract_langs)"
+  missing=""
+  for l in $desired; do grep -Fxq "$l" <<<"$inst" || missing="$missing $l"; done
+  if [ -n "$missing" ] && [ "$CHECK" != 1 ]; then
+    note "Missing OCR languages:$missing"
     case "$PM" in
-      apt) instalar_tesseract_pm "$desejados" || true ;;
-      brew) instalar_com "os idiomas do Tesseract (brew install tesseract-lang)" brew install tesseract-lang || true ;;
+      apt) install_tesseract_pm "$desired" || true ;;
+      brew) install_with "the Tesseract languages (brew install tesseract-lang)" brew install tesseract-lang || true ;;
     esac
-    inst="$(idiomas_tesseract)"
+    inst="$(tesseract_langs)"
   fi
   TESSDATA_DIR="$(tessdata_dir)"
-  faltam=""
-  for l in $desejados; do grep -Fxq "$l" <<<"$inst" || faltam="$faltam $l"; done
-  if [ -n "$faltam" ] && [ "$VERIFICAR" != 1 ] && [ -n "$TESSDATA_DIR" ]; then
-    if confirmar "Baixar direto do repositório oficial do Tesseract os idiomas:$faltam (para $TESSDATA_DIR)?" s; then
-      for l in $faltam; do
-        if baixar_traineddata "$l" fast; then ok "$l baixado"; else aviso "Não consegui baixar $l ($TESSDATA_URL_BASE/tessdata_fast)."; fi
+  missing=""
+  for l in $desired; do grep -Fxq "$l" <<<"$inst" || missing="$missing $l"; done
+  if [ -n "$missing" ] && [ "$CHECK" != 1 ] && [ -n "$TESSDATA_DIR" ]; then
+    if confirm "Download straight from the official Tesseract repository the languages:$missing (to $TESSDATA_DIR)?" y; then
+      for l in $missing; do
+        if download_traineddata "$l" fast; then ok "$l downloaded"; else warn "I could not download $l ($TESSDATA_URL_BASE/tessdata_fast)."; fi
       done
-      inst="$(idiomas_tesseract)"
+      inst="$(tesseract_langs)"
     fi
   fi
-  for l in $desejados; do
-    if grep -Fxq "$l" <<<"$inst"; then ok "idioma $l"
-    elif [ "$l" = eng ] || [ "$l" = osd ]; then falha "idioma $l ausente (necessário). Instale: tesseract-ocr-$l (apt) ou tesseract-lang (brew)"
-    else aviso "idioma $l ausente: livros em '$l' não poderão ser lidos por OCR (instale tesseract-ocr-$l ou use brew install tesseract-lang)"
+  for l in $desired; do
+    if grep -Fxq "$l" <<<"$inst"; then ok "language $l"
+    elif [ "$l" = eng ] || [ "$l" = osd ]; then fail "language $l missing (required). Install: tesseract-ocr-$l (apt) or tesseract-lang (brew)"
+    else warn "language $l missing: books in '$l' cannot be read by OCR (install tesseract-ocr-$l or use brew install tesseract-lang)"
     fi
   done
 
-  # letra gótica (Fraktur): o programa testa estes modelos sozinho e usa o que ler melhor
-  local gotica_ok="" gotica_falta=""
-  for l in $IDIOMAS_GOTICOS; do grep -Fxq "$l" <<<"$inst" && gotica_ok="$gotica_ok $l" || gotica_falta="$gotica_falta $l"; done
-  if [ -n "$gotica_falta" ] && [ "$VERIFICAR" != 1 ] && [ -n "$TESSDATA_DIR" ]; then
-    info "Livros impressos em letra gótica (Fraktur) precisam de um destes modelos:$gotica_falta"
-    if confirmar "Baixar os modelos de Fraktur (versão 'best', mais precisa) para $TESSDATA_DIR?" s; then
-      for l in $gotica_falta; do
-        if baixar_traineddata "$l" best; then ok "$l (Fraktur) baixado"; else aviso "Não consegui baixar $l ($TESSDATA_URL_BASE/tessdata_best)."; fi
+  # gothic type (Fraktur): the program tests these models on its own and uses the one that reads best
+  local gothic_ok="" gothic_missing=""
+  for l in $GOTHIC_LANGS; do grep -Fxq "$l" <<<"$inst" && gothic_ok="$gothic_ok $l" || gothic_missing="$gothic_missing $l"; done
+  if [ -n "$gothic_missing" ] && [ "$CHECK" != 1 ] && [ -n "$TESSDATA_DIR" ]; then
+    info "Books printed in gothic type (Fraktur) need one of these models:$gothic_missing"
+    if confirm "Download the Fraktur models ('best' version, more accurate) to $TESSDATA_DIR?" y; then
+      for l in $gothic_missing; do
+        if download_traineddata "$l" best; then ok "$l (Fraktur) downloaded"; else warn "I could not download $l ($TESSDATA_URL_BASE/tessdata_best)."; fi
       done
-      inst="$(idiomas_tesseract)"
-      gotica_ok=""
-      for l in $IDIOMAS_GOTICOS; do grep -Fxq "$l" <<<"$inst" && gotica_ok="$gotica_ok $l"; done
+      inst="$(tesseract_langs)"
+      gothic_ok=""
+      for l in $GOTHIC_LANGS; do grep -Fxq "$l" <<<"$inst" && gothic_ok="$gothic_ok $l"; done
     fi
   fi
-  if [ -n "$gotica_ok" ]; then ok "letra gótica (Fraktur):$gotica_ok"
-  else aviso "Sem modelo de Fraktur (frk, deu_latf): livros góticos sairão com muitos erros. Rode ./setup.sh de novo para baixar."
+  if [ -n "$gothic_ok" ]; then ok "gothic type (Fraktur):$gothic_ok"
+  else warn "No Fraktur model (frk, deu_latf): gothic books will come out with many errors. Run ./setup.sh again to download them."
   fi
 }
 
 # ---------------------------------------------------------------------------------------- 5. Ollama
-normalizar_url() {
-  local u="$1" resto host
+normalize_url() {
+  local u="$1" rest host
   case "$u" in http://*|https://*) ;; *) u="http://$u" ;; esac
-  resto="${u#*://}"; resto="${resto%%/*}"
-  host="${resto%%:*}"
-  [ "$host" = "0.0.0.0" ] && u="${u/0.0.0.0/localhost}" && resto="${resto/0.0.0.0/localhost}"
-  case "$resto" in *:*) ;; *) u="${u%/}:11434" ;; esac
+  rest="${u#*://}"; rest="${rest%%/*}"
+  host="${rest%%:*}"
+  [ "$host" = "0.0.0.0" ] && u="${u/0.0.0.0/localhost}" && rest="${rest/0.0.0.0/localhost}"
+  case "$rest" in *:*) ;; *) u="${u%/}:11434" ;; esac
   printf '%s' "${u%/}"
 }
 
-e_local() {
-  local resto="${1#*://}"; resto="${resto%%/*}"
-  case "${resto%%:*}" in localhost|127.*|"[::1]"|::1) return 0 ;; *) return 1 ;; esac
+is_local() {
+  local rest="${1#*://}"; rest="${rest%%/*}"
+  case "${rest%%:*}" in localhost|127.*|"[::1]"|::1) return 0 ;; *) return 1 ;; esac
 }
 
-ollama_no_ar() { curl -fsS --max-time 6 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; }
+ollama_up() { curl -fsS --max-time 6 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; }
 
-listar_modelos() {
+list_models() {
   curl -fsS --max-time 10 "$OLLAMA_URL/api/tags" 2>/dev/null | grep -o '"name": *"[^"]*"' | sed 's/^"name": *"//; s/"$//' || true
 }
 
-tem_modelo() {
+has_model() {
   local m="$1" base="$1"
   case "$m" in *:*) ;; *) base="$m:latest" ;; esac
-  grep -Fxq -e "$m" -e "$base" <<<"$MODELOS_INST"
+  grep -Fxq -e "$m" -e "$base" <<<"$INSTALLED_MODELS"
 }
 
-achar_ollama_cli() {
-  tem ollama && return 0
+find_ollama_cli() {
+  has ollama && return 0
   [ -x /Applications/Ollama.app/Contents/Resources/ollama ] && return 0
   return 1
 }
 
-iniciar_ollama_local() {
-  if [ "$SO" = Darwin ] && [ -d /Applications/Ollama.app ]; then
-    rodar open -a Ollama
+start_local_ollama() {
+  if [ "$OS_" = Darwin ] && [ -d /Applications/Ollama.app ]; then
+    run_cmd open -a Ollama
   elif [ "$PM" = brew ] && brew list --formula ollama >/dev/null 2>&1; then
-    rodar brew services start ollama
-  elif tem systemctl && systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
-    rodar como_root systemctl start ollama
-  elif tem ollama; then
-    printf '    %s$ ollama serve (em segundo plano; log em .ollama-serve.log)%s\n' "$C_D" "$C_0"
-    nohup ollama serve >"$RAIZ/.ollama-serve.log" 2>&1 &
+    run_cmd brew services start ollama
+  elif has systemctl && systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
+    run_cmd as_root systemctl start ollama
+  elif has ollama; then
+    printf '    %s$ ollama serve (in the background; log in .ollama-serve.log)%s\n' "$C_D" "$C_0"
+    nohup ollama serve >"$ROOT/.ollama-serve.log" 2>&1 &
   else
     return 1
   fi
 }
 
-esperar_ollama() {
+wait_ollama() {
   local i
-  for i in $(seq 1 45); do ollama_no_ar && return 0; sleep 1; done
+  for i in $(seq 1 45); do ollama_up && return 0; sleep 1; done
   return 1
 }
 
-instalar_ollama() {
-  if [ "$SO" = Darwin ]; then
-    if [ "$PM" = brew ]; then instalar_com "o Ollama (brew install ollama)" brew install ollama; else return 1; fi
+install_ollama() {
+  if [ "$OS_" = Darwin ]; then
+    if [ "$PM" = brew ]; then install_with "Ollama (brew install ollama)" brew install ollama; else return 1; fi
   else
-    if [ "$VERIFICAR" = 1 ]; then return 1; fi
-    if [ "$INSTALAR_OLLAMA" = 1 ] || confirmar "Rodar o instalador oficial do Ollama (curl -fsSL https://ollama.com/install.sh | sh, pede sudo)?" n; then
+    if [ "$CHECK" = 1 ]; then return 1; fi
+    if [ "$INSTALL_OLLAMA" = 1 ] || confirm "Run Ollama's official installer (curl -fsSL https://ollama.com/install.sh | sh, asks for sudo)?" n; then
       printf '    %s$ curl -fsSL https://ollama.com/install.sh | sh%s\n' "$C_D" "$C_0"
       curl -fsSL https://ollama.com/install.sh | sh
     else
-      info "Para instalar à mão:  curl -fsSL https://ollama.com/install.sh | sh   (ou use --instalar-ollama)"
+      info "To install by hand:  curl -fsSL https://ollama.com/install.sh | sh   (or use --install-ollama)"
       return 1
     fi
   fi
 }
 
-baixar_modelo() {  # baixa pela API do Ollama (serve para local e remoto), com barra de progresso e novas tentativas
-  local modelo="$1" tent=0 rc
-  while [ "$tent" -lt 3 ]; do
-    tent=$((tent + 1))
-    "$PYANY" -c "$PY_PULL" "$OLLAMA_URL" "$modelo"; rc=$?
+download_model() {  # downloads via Ollama's API (works for local and remote), with a progress bar and retries
+  local model="$1" tries=0 rc
+  while [ "$tries" -lt 3 ]; do
+    tries=$((tries + 1))
+    "$PYANY" -c "$PY_PULL" "$OLLAMA_URL" "$model"; rc=$?
     [ "$rc" -eq 0 ] && return 0
     [ "$rc" -ge 130 ] && exit 130
-    printf '    nova tentativa (%d/3) em 3 s... o Ollama retoma de onde parou\n' "$tent"
+    printf '    retry (%d/3) in 3 s... Ollama resumes where it stopped\n' "$tries"
     sleep 3
   done
   return 1
 }
 
-garantir_modelo() {  # garantir_modelo NOME "para que serve" obrigatorio(1|0)
-  local m="$1" uso="$2" obrig="$3" falta_fn=aviso
-  [ "$obrig" = 1 ] && falta_fn=falha
-  if tem_modelo "$m"; then ok "modelo $m ($uso)"; return 0; fi
-  if [ "$SEM_MODELOS" = 1 ] || [ "$VERIFICAR" = 1 ]; then
-    $falta_fn "modelo $m ($uso) não está instalado → ./setup.sh baixa (modelos de 12B: uns 8 GB)"
+ensure_model() {  # ensure_model NAME "what it is for" required(1|0)
+  local m="$1" use="$2" required="$3" miss_fn=warn
+  [ "$required" = 1 ] && miss_fn=fail
+  if has_model "$m"; then ok "model $m ($use)"; return 0; fi
+  if [ "$NO_MODELS" = 1 ] || [ "$CHECK" = 1 ]; then
+    $miss_fn "model $m ($use) is not installed → ./setup.sh downloads it (12B models: about 8 GB)"
     return 1
   fi
   if [ "$OLLAMA_LOCAL" = 1 ]; then
-    local livre; livre="$(livre_gb "${OLLAMA_MODELS:-$HOME/.ollama}")"
-    if [ -n "$livre" ] && [ "$livre" -lt "$GB_POR_MODELO" ]; then
-      nota "Só ${livre} GB livres em disco; um modelo de 12B ocupa uns 8 GB."
-      confirmar "Tentar baixar mesmo assim?" n || { $falta_fn "modelo $m ($uso) não baixado: pouco espaço em disco"; return 1; }
+    local free; free="$(free_gb "${OLLAMA_MODELS:-$HOME/.ollama}")"
+    if [ -n "$free" ] && [ "$free" -lt "$GB_PER_MODEL" ]; then
+      note "Only ${free} GB free on disk; a 12B model takes about 8 GB."
+      confirm "Try to download anyway?" n || { $miss_fn "model $m ($use) not downloaded: low disk space"; return 1; }
     fi
   fi
-  confirmar "Baixar o modelo $m ($uso; modelos de 12B pesam uns 8 GB)?" s || { $falta_fn "modelo $m ($uso) não baixado → ollama pull $m"; return 1; }
-  printf '    baixando %s de %s ...\n' "$m" "$OLLAMA_URL"
-  if baixar_modelo "$m"; then
-    ok "modelo $m baixado"
-    MODELOS_INST="$MODELOS_INST"$'\n'"$m"
+  confirm "Download the model $m ($use; 12B models weigh about 8 GB)?" y || { $miss_fn "model $m ($use) not downloaded → ollama pull $m"; return 1; }
+  printf '    downloading %s from %s ...\n' "$m" "$OLLAMA_URL"
+  if download_model "$m"; then
+    ok "model $m downloaded"
+    INSTALLED_MODELS="$INSTALLED_MODELS"$'\n'"$m"
     return 0
   fi
-  $falta_fn "não consegui baixar $m (rede? espaço em disco?) → ollama pull $m"
+  $miss_fn "I could not download $m (network? disk space?) → ollama pull $m"
   return 1
 }
 
-testar_modelo() {  # tradução curta para ver se o modelo carrega e responde
+test_model() {  # short translation to see that the model loads and responds
   local m="$1"
-  printf '    carregando %s (pode levar um minuto)...\n' "$m"
-  if "$PYANY" -c "$PY_TESTE" "$OLLAMA_URL" "$m"
-  then ok "modelo $m respondeu"; else aviso "O modelo $m não respondeu (memória insuficiente? veja os logs do Ollama)."; fi
+  printf '    loading %s (may take a minute)...\n' "$m"
+  if "$PYANY" -c "$PY_TEST" "$OLLAMA_URL" "$m"
+  then ok "model $m responded"; else warn "The model $m did not respond (not enough memory? check the Ollama logs)."; fi
 }
 
-passo_ollama() {
-  passo "5. Ollama e modelos"
-  OLLAMA_URL="$(normalizar_url "${OLLAMA_URL_ARG:-${OLLAMA_HOST:-http://localhost:11434}}")"
-  if e_local "$OLLAMA_URL"; then OLLAMA_LOCAL=1; else OLLAMA_LOCAL=0; fi
-  info "Servidor: $OLLAMA_URL ($([ "$OLLAMA_LOCAL" = 1 ] && echo 'esta máquina' || echo 'outra máquina'))"
+step_ollama() {
+  step "5. Ollama and models"
+  OLLAMA_URL="$(normalize_url "${OLLAMA_URL_ARG:-${OLLAMA_HOST:-http://localhost:11434}}")"
+  if is_local "$OLLAMA_URL"; then OLLAMA_LOCAL=1; else OLLAMA_LOCAL=0; fi
+  info "Server: $OLLAMA_URL ($([ "$OLLAMA_LOCAL" = 1 ] && echo 'this machine' || echo 'another machine'))"
 
   if [ "$OLLAMA_LOCAL" = 1 ]; then
-    if achar_ollama_cli; then ok "Ollama instalado"
+    if find_ollama_cli; then ok "Ollama installed"
     else
-      nota "Ollama não está instalado."
-      if instalar_ollama; then hash -r; fi
-      achar_ollama_cli && ok "Ollama instalado" || { falha "Ollama ausente. macOS: brew install ollama (ou https://ollama.com/download) · Linux: curl -fsSL https://ollama.com/install.sh | sh"; return 1; }
+      note "Ollama is not installed."
+      if install_ollama; then hash -r; fi
+      find_ollama_cli && ok "Ollama installed" || { fail "Ollama missing. macOS: brew install ollama (or https://ollama.com/download) · Linux: curl -fsSL https://ollama.com/install.sh | sh"; return 1; }
     fi
   fi
 
-  if ollama_no_ar; then
-    ok "Ollama respondendo em $OLLAMA_URL"
-  elif [ "$OLLAMA_LOCAL" = 1 ] && [ "$VERIFICAR" != 1 ]; then
-    nota "Ollama não está respondendo; vou iniciá-lo."
-    if iniciar_ollama_local && esperar_ollama; then ok "Ollama iniciado em $OLLAMA_URL"
-    else falha "Não consegui iniciar o Ollama. Abra o app Ollama ou rode 'ollama serve' em outro terminal e tente de novo."; return 1; fi
+  if ollama_up; then
+    ok "Ollama responding at $OLLAMA_URL"
+  elif [ "$OLLAMA_LOCAL" = 1 ] && [ "$CHECK" != 1 ]; then
+    note "Ollama is not responding; I'll start it."
+    if start_local_ollama && wait_ollama; then ok "Ollama started at $OLLAMA_URL"
+    else fail "I could not start Ollama. Open the Ollama app or run 'ollama serve' in another terminal and try again."; return 1; fi
   else
-    if [ "$OLLAMA_LOCAL" = 1 ]; then falha "Ollama não está respondendo em $OLLAMA_URL (abra o app ou rode 'ollama serve')"
-    else falha "Não alcancei o Ollama em $OLLAMA_URL. Confira o endereço, a rede e se o servidor escuta fora de localhost (OLLAMA_HOST=0.0.0.0)."
+    if [ "$OLLAMA_LOCAL" = 1 ]; then fail "Ollama is not responding at $OLLAMA_URL (open the app or run 'ollama serve')"
+    else fail "I could not reach Ollama at $OLLAMA_URL. Check the address, the network and whether the server listens outside localhost (OLLAMA_HOST=0.0.0.0)."
     fi
     return 1
   fi
 
-  MODELOS_INST="$(listar_modelos)"
-  garantir_modelo "$MODELO_TRAD" "tradução" 1 || true
-  if [ "$SEM_MODELO_GERAL" = 1 ]; then
-    info "Modelo geral para sugestões de OCR: pulado (--sem-modelo-ocr)."
-  elif [ "$SEM_OCR" = 1 ] && [ "$MODELO_GERAL_EXPLICITO" != 1 ]; then
-    info "Modelo geral para sugestões de OCR: pulado (OCR desligado)."
+  INSTALLED_MODELS="$(list_models)"
+  ensure_model "$TRANS_MODEL" "translation" 1 || true
+  if [ "$NO_GENERAL_MODEL" = 1 ]; then
+    info "General model for OCR suggestions: skipped (--no-ocr-model)."
+  elif [ "$NO_OCR" = 1 ] && [ "$GENERAL_MODEL_SET" != 1 ]; then
+    info "General model for OCR suggestions: skipped (OCR disabled)."
   else
-    garantir_modelo "$MODELO_GERAL" "sugestões de correção do OCR" 0 || true
+    ensure_model "$GENERAL_MODEL" "OCR correction suggestions" 0 || true
   fi
-  if [ "$TESTAR" = 1 ] && [ "$VERIFICAR" != 1 ]; then
-    tem_modelo "$MODELO_TRAD" && testar_modelo "$MODELO_TRAD"
-    if [ "$SEM_MODELO_GERAL" != 1 ] && tem_modelo "$MODELO_GERAL"; then testar_modelo "$MODELO_GERAL"; fi
+  if [ "$TEST" = 1 ] && [ "$CHECK" != 1 ]; then
+    has_model "$TRANS_MODEL" && test_model "$TRANS_MODEL"
+    if [ "$NO_GENERAL_MODEL" != 1 ] && has_model "$GENERAL_MODEL"; then test_model "$GENERAL_MODEL"; fi
   fi
 }
 
-# ---------------------------------------------------------------------------------------- 6. opcionais
-passo_opcionais() {
-  passo "6. Opcionais"
+# ---------------------------------------------------------------------------------------- 6. optional
+step_optional() {
+  step "6. Optional"
   local calibre=""
-  if tem ebook-convert; then calibre="$(command -v ebook-convert)"
+  if has ebook-convert; then calibre="$(command -v ebook-convert)"
   elif [ -x /Applications/calibre.app/Contents/MacOS/ebook-convert ]; then calibre="/Applications/calibre.app/Contents/MacOS/ebook-convert"; fi
-  if [ -n "$calibre" ]; then ok "Calibre ($calibre): MOBI/AZW3/FB2/DOCX serão lidos"
-  elif [ "$CALIBRE" = 1 ] && [ "$VERIFICAR" != 1 ]; then
+  if [ -n "$calibre" ]; then ok "Calibre ($calibre): MOBI/AZW3/FB2/DOCX will be read"
+  elif [ "$CALIBRE" = 1 ] && [ "$CHECK" != 1 ]; then
     case "$PM" in
-      brew)   instalar_com "o Calibre (brew install --cask calibre)" brew install --cask calibre ;;
-      apt)    instalar_com "o Calibre (apt)" como_root apt-get install -y calibre ;;
-      dnf)    instalar_com "o Calibre (dnf)" como_root dnf install -y calibre ;;
-      pacman) instalar_com "o Calibre (pacman)" como_root pacman -S --noconfirm calibre ;;
-      *)      info "Instale o Calibre em https://calibre-ebook.com/download" ;;
+      brew)   install_with "Calibre (brew install --cask calibre)" brew install --cask calibre ;;
+      apt)    install_with "Calibre (apt)" as_root apt-get install -y calibre ;;
+      dnf)    install_with "Calibre (dnf)" as_root dnf install -y calibre ;;
+      pacman) install_with "Calibre (pacman)" as_root pacman -S --noconfirm calibre ;;
+      *)      info "Install Calibre from https://calibre-ebook.com/download" ;;
     esac
     hash -r
-    if tem ebook-convert || [ -x /Applications/calibre.app/Contents/MacOS/ebook-convert ]; then ok "Calibre instalado"; else aviso "Calibre não instalado."; fi
+    if has ebook-convert || [ -x /Applications/calibre.app/Contents/MacOS/ebook-convert ]; then ok "Calibre installed"; else warn "Calibre not installed."; fi
   else
-    info "Calibre não instalado (opcional: só para MOBI/AZW3/FB2/DOCX; EPUB, PDF, TXT e scans funcionam sem ele). Use --calibre para instalar."
+    info "Calibre not installed (optional: only for MOBI/AZW3/FB2/DOCX; EPUB, PDF, TXT and scans work without it). Use --calibre to install it."
   fi
 }
 
-# ---------------------------------------------------------------------------------------- 7. conferência
-passo_conferencia() {
-  passo "7. Conferência final"
-  if [ -z "$VPY" ]; then info "Pulada: sem Python utilizável."; return 0; fi
+# ---------------------------------------------------------------------------------------- 7. check
+step_check() {
+  step "7. Final check"
+  if [ -z "$VPY" ]; then info "Skipped: no usable Python."; return 0; fi
   local v
-  if v="$("$VPY" "$RAIZ/pharos.py" --versao 2>&1)"; then ok "O programa abre: $v"
-  else printf '%s\n' "$v" | tail -4 | sed 's/^/    /'; falha "pharos.py não inicia (veja a mensagem acima)"; return 1; fi
-  if [ "$SEM_OCR" != 1 ] && [ -n "$TESS" ]; then
-    local saida
-    saida="$(TESSERACT_CMD="$TESS" "$VPY" -c "$PY_OCR" "$RAIZ" 2>&1)"
-    case "$saida" in
-      ok\|*) ok "O programa enxerga o Tesseract e os idiomas: ${saida#ok|}" ;;
-      *)     falha "O programa não conseguiu usar o Tesseract: ${saida#erro|}" ;;
+  if v="$("$VPY" "$ROOT/pharos.py" --version 2>&1)"; then ok "The program starts: $v"
+  else printf '%s\n' "$v" | tail -4 | sed 's/^/    /'; fail "pharos.py does not start (see the message above)"; return 1; fi
+  if [ "$NO_OCR" != 1 ] && [ -n "$TESS" ]; then
+    local out
+    out="$(TESSERACT_CMD="$TESS" "$VPY" -c "$PY_OCR" "$ROOT" 2>&1)"
+    case "$out" in
+      ok\|*) ok "The program sees Tesseract and the languages: ${out#ok|}" ;;
+      *)     fail "The program could not use Tesseract: ${out#error|}" ;;
     esac
   fi
 }
 
-criar_atalho() {
-  [ "$VERIFICAR" = 1 ] && return 0
+create_shortcut() {
+  [ "$CHECK" = 1 ] && return 0
   [ -n "$VPY" ] || return 0
   {
     local u="" m="" mo=""
     [ -n "$OLLAMA_URL_ARG" ] && [ "$OLLAMA_LOCAL" != 1 ] && u="$OLLAMA_URL"
-    [ "$MODELO_TRAD_EXPLICITO" = 1 ] && m="$MODELO_TRAD"
-    [ "$MODELO_GERAL_EXPLICITO" = 1 ] && mo="$MODELO_GERAL"
-    printf '# Gerado pelo setup.sh (ajustes lembrados entre execuções). Apague este arquivo para voltar ao padrão.\n'
-    printf 'OLLAMA_URL=%q\nMODELO=%q\nMODELO_OCR=%q\n' "$u" "$m" "$mo"
+    [ "$TRANS_MODEL_SET" = 1 ] && m="$TRANS_MODEL"
+    [ "$GENERAL_MODEL_SET" = 1 ] && mo="$GENERAL_MODEL"
+    printf '# Generated by setup.sh (choices remembered between runs). Delete this file to go back to the defaults.\n'
+    printf 'OLLAMA_URL=%q\nMODEL=%q\nOCR_MODEL=%q\n' "$u" "$m" "$mo"
   } >"$CONF"
-  cat >"$RAIZ/pharos.sh" <<'ATALHO'
+  cat >"$ROOT/pharos.sh" <<'SHORTCUT'
 #!/usr/bin/env bash
-# Gerado pelo setup.sh: roda o Pharos com o Python do ambiente (.venv), sem precisar "ativar" nada.
-#   ./pharos.sh livro.pdf          (equivale a: python pharos.py livro.pdf)
-# Os ajustes escolhidos no setup (Ollama em outra máquina, modelos) ficam em .setup.conf.
+# Generated by setup.sh: runs Pharos with the environment's Python (.venv), without having to "activate" anything.
+#   ./pharos.sh book.pdf          (equivalent to: python pharos.py book.pdf)
+# The choices made in setup (Ollama on another machine, models) live in .setup.conf.
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OLLAMA_URL=""; MODELO=""; MODELO_OCR=""
+OLLAMA_URL=""; MODEL=""; OCR_MODEL=""
 [ -f "$DIR/.setup.conf" ] && . "$DIR/.setup.conf"
 PY="$DIR/.venv/bin/python"
 [ -x "$PY" ] || PY="${PYTHON:-python3}"
-tem_opcao() { local o="$1" a; shift; for a in "$@"; do case "$a" in "$o"|"$o="*) return 0 ;; esac; done; return 1; }
-if [ -n "$OLLAMA_URL" ] && ! tem_opcao --ollama "$@"; then set -- "$@" --ollama "$OLLAMA_URL"; fi
-if [ -n "$MODELO" ] && ! tem_opcao --modelo "$@"; then set -- "$@" --modelo "$MODELO"; fi
-if [ -n "$MODELO_OCR" ] && ! tem_opcao --modelo-ocr "$@"; then set -- "$@" --modelo-ocr "$MODELO_OCR"; fi
+has_opt() { local o="$1" a; shift; for a in "$@"; do case "$a" in "$o"|"$o="*) return 0 ;; esac; done; return 1; }
+if [ -n "$OLLAMA_URL" ] && ! has_opt --ollama "$@"; then set -- "$@" --ollama "$OLLAMA_URL"; fi
+if [ -n "$MODEL" ] && ! has_opt --model "$@"; then set -- "$@" --model "$MODEL"; fi
+if [ -n "$OCR_MODEL" ] && ! has_opt --ocr-model "$@"; then set -- "$@" --ocr-model "$OCR_MODEL"; fi
 exec "$PY" "$DIR/pharos.py" "$@"
-ATALHO
-  chmod +x "$RAIZ/pharos.sh"
-  ok "Atalho criado: ./pharos.sh (usa o .venv; dispensa 'source .venv/bin/activate')"
+SHORTCUT
+  chmod +x "$ROOT/pharos.sh"
+  ok "Shortcut created: ./pharos.sh (uses the .venv; no need for 'source .venv/bin/activate')"
 }
 
-# ---------------------------------------------------------------------------------------- execução
-printf '%sPharos — %s do ambiente%s\n' "$C_B" "$([ "$VERIFICAR" = 1 ] && echo verificação || echo preparação)" "$C_0"
-[ "$VERIFICAR" = 1 ] && info "Modo --verificar: nada será instalado nem alterado."
-[ "$VERIFICAR" != 1 ] && [ "$SIM" != 1 ] && [ ! -t 0 ] && info "Sem terminal interativo e sem -y: não instalo pacotes do sistema nem baixo modelos (só preparo o .venv e as bibliotecas Python). Use -y para aceitar tudo."
+# ---------------------------------------------------------------------------------------- execution
+printf '%sPharos — environment %s%s\n' "$C_B" "$([ "$CHECK" = 1 ] && echo check || echo setup)" "$C_0"
+[ "$CHECK" = 1 ] && info "--check mode: nothing will be installed or changed."
+[ "$CHECK" != 1 ] && [ "$YES" != 1 ] && [ ! -t 0 ] && info "No interactive terminal and no -y: I do not install system packages or download models (I only prepare the .venv and the Python libraries). Use -y to accept everything."
 
-passo_sistema
-passo_python
-passo_bibliotecas
-passo_ocr
-passo_ollama
-passo_opcionais
-passo_conferencia
-criar_atalho
+step_system
+step_python
+step_libs
+step_ocr
+step_ollama
+step_optional
+step_check
+create_shortcut
 
-passo "Resumo"
-if [ -n "$RESUMO_FALHAS" ]; then printf '%s%sO que falta (obrigatório):%s\n%s' "$C_ER" "$C_B" "$C_0" "$RESUMO_FALHAS"; fi
-if [ -n "$RESUMO_AVISOS" ]; then printf '%s%sAvisos:%s\n%s' "$C_AV" "$C_B" "$C_0" "$RESUMO_AVISOS"; fi
-if [ "$FALHAS" -eq 0 ]; then
-  if [ "$VERIFICAR" = 1 ]; then printf '  %s✓ Ambiente pronto.%s\n' "$C_OK" "$C_0"
+step "Summary"
+if [ -n "$FAIL_SUMMARY" ]; then printf '%s%sWhat is missing (required):%s\n%s' "$C_ER" "$C_B" "$C_0" "$FAIL_SUMMARY"; fi
+if [ -n "$WARN_SUMMARY" ]; then printf '%s%sWarnings:%s\n%s' "$C_AV" "$C_B" "$C_0" "$WARN_SUMMARY"; fi
+if [ "$FAILURES" -eq 0 ]; then
+  if [ "$CHECK" = 1 ]; then printf '  %s✓ Environment ready.%s\n' "$C_OK" "$C_0"
   else
-    printf '  %s✓ Ambiente pronto.%s Para traduzir:\n' "$C_OK" "$C_0"
-    info "./pharos.sh meu_livro.pdf"
-    info "./pharos.sh scan_do_livro.pdf --origem de      # scan em alemão: OCR + revisão na tela"
-    info "./pharos.sh --ajuda"
+    printf '  %s✓ Environment ready.%s To translate:\n' "$C_OK" "$C_0"
+    info "./pharos.sh my_book.pdf"
+    info "./pharos.sh book_scan.pdf --source de      # German scan: OCR + on-screen review"
+    info "./pharos.sh --help"
   fi
   exit 0
 fi
-if [ "$VERIFICAR" = 1 ]; then printf '\n  Rode ./setup.sh (sem --verificar) para preparar o que falta.\n'
-else printf '\n  Resolva o que está marcado com ✗ e rode ./setup.sh de novo: ele retoma de onde parou.\n'
+if [ "$CHECK" = 1 ]; then printf '\n  Run ./setup.sh (without --check) to prepare what is missing.\n'
+else printf '\n  Fix what is marked with ✗ and run ./setup.sh again: it resumes where it stopped.\n'
 fi
 exit 1
