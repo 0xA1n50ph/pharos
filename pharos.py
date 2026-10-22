@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from pharos import __version__
+from pharos import __version__, boundaries
 from pharos.config import Config, LANGUAGES, language_name, normalize_code
 from pharos.detection import file_type
 from pharos.export import FORMATS, export_all
@@ -154,6 +154,9 @@ def stage_extraction(proj: Project, cfg: Config, ui: UI, args) -> Book:
     words = book.total_words()
     if words < 200:
         raise ExtractionError(f"Only {words} words extracted; the file seems empty or protected.")
+    checked = boundaries.check_boundaries(book)
+    boundaries.save(proj.boundaries_path, checked)
+    (proj.folder("review") / "boundaries.md").write_text(boundaries.report_markdown(checked), encoding="utf-8")
     book.save(proj.book_path)
     proj.book_md_path.write_text(book_to_markdown(book), encoding="utf-8")
     if report.get("pages_without_text"):
@@ -166,6 +169,12 @@ def stage_extraction(proj: Project, cfg: Config, ui: UI, args) -> Book:
         ui.info("Headers/footers removed: " + "; ".join(report["headers_removed"][:4]))
     if report.get("pages_without_text"):
         ui.warn(f"{len(report['pages_without_text'])} page(s) without text were ignored.")
+    if checked["hyphen"] or checked["sentence"]:
+        ui.info(f"Rejoined passages split in the middle: {checked['hyphen']} by a hyphenated word, "
+                f"{checked['sentence']} in the middle of a sentence.")
+    if checked["suspects"]:
+        ui.warn(f"{len(checked['suspects'])} passage(s) end without punctuation and may be cut in two "
+                f"(marked '{boundaries.POSSIBLE_SPLIT}' in the preview; list in review/boundaries.md).")
     ui.info(f"Text in the original language: {proj.book_md_path}")
     if original.is_file():  # for a set of images, the folder name given when the project was created applies
         cfg.original_file = original.name
@@ -347,7 +356,8 @@ def stage_export(translator: Translator, proj: Project, cfg: Config, book: Book,
     texts, results = fetch_translations(book, translator)
     pending = sum(1 for r in results.values() if "pending" in r.alerts)
     generated = export_all(proj, cfg, book, texts, results, cfg.formats)
-    proj.report_path.write_text(alerts_report(book, results), encoding="utf-8")
+    proj.report_path.write_text(alerts_report(book, results, boundaries.load_suspects(proj.boundaries_path)),
+                                encoding="utf-8")
     review_ = sum(1 for r in results.values() if "review" in r.alerts)
     ui.info("Generated files:")
     for g in generated:

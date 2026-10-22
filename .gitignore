@@ -13,5 +13,14 @@ __pycache__/
 /pharos.sh
 
 # Dados de projetos (livros extraídos/traduzidos): não versionar
-/translated
+# Cada livro vira uma pasta na raiz (original/, ocr/, translated/...). Em vez de listar cada uma,
+# ignora toda pasta da raiz e libera só as do código.
+/*/
+!/pharos/
+!/tests/
+!/.github/
 *.zip
+*.pdf
+*.epub
+*.mobi
+*.azw3
